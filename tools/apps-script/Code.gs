@@ -16,6 +16,8 @@
  * FAA certificate, drone registrations, and other certificates. Pilots see
  * only their own folder; admins see all.
  *
+ * Mission Planning: looks up FAA TFRs near a location (plan.tfr).
+ *
  * Setup: see the instructions Claude provided. Deploy as a Web app,
  * "Execute as: Me", "Who has access: Anyone".
  */
@@ -158,6 +160,7 @@ function addAircraft(ss, a, by) {
 
 function handleAction(d) {
   if (/^(me|pilot|pilots|doc)\./.test(d.action)) return pilotAction(d);
+  if (d.action === 'plan.tfr') return planTfr(d);
   var ss = maintBook(), lock = LockService.getScriptLock();
   if (d.action === 'aircraft.list') return {ok: true, aircraft: aircraftList(ss)};
   if (d.action === 'aircraft.add') {
@@ -322,4 +325,59 @@ function pilotAction(d) {
     return {ok: true};
   }
   return {ok: false, error: 'unknown action'};
+}
+
+
+// ===================== Mission Planning: TFRs near a point =====================
+var TFR_WFS = 'https://tfr.faa.gov/geoserver/TFR/ows?service=WFS&version=1.1.0&request=GetFeature&typeName=TFR:V_TFR_LOC&maxFeatures=500&outputFormat=application/json&srsName=EPSG:3857';
+
+function planTfr(d) {
+  var lat = Number(d.lat), lon = Number(d.lon), miles = Math.min(Number(d.miles) || 30, 100);
+  if (!isFinite(lat) || !isFinite(lon)) return {ok: false, error: 'bad location'};
+  var cache = CacheService.getScriptCache(), raw = cache.get('tfr_wfs');
+  if (!raw) {
+    var res = UrlFetchApp.fetch(TFR_WFS, {muteHttpExceptions: true, headers: {Accept: 'application/json'}});
+    if (res.getResponseCode() !== 200) return {ok: false, error: 'FAA TFR service returned ' + res.getResponseCode()};
+    raw = res.getContentText();
+    if (raw.length < 95000) cache.put('tfr_wfs', raw, 900);
+  }
+  var fc = JSON.parse(raw), out = [];
+  (fc.features || []).forEach(function (f) {
+    var g = toLonLat(f.geometry);
+    if (!g) return;
+    var rings = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+    var inside = false, best = 1e9;
+    rings.forEach(function (poly) {
+      if (pointInRing(lon, lat, poly[0])) inside = true;
+      poly[0].forEach(function (c) { best = Math.min(best, haversineMi(lat, lon, c[1], c[0])); });
+    });
+    if (inside) best = 0;
+    if (best > miles) return;
+    var p = f.properties || {};
+    var title = p.TITLE || p.title || p.NAME || p.LEGAL || p.NOTAM_KEY || 'TFR';
+    out.push({title: String(title).slice(0, 200), notam: String(p.NOTAM_KEY || p.notam_key || ''), state: String(p.STATE || ''), inside: inside, miles: Math.round(best * 10) / 10, geometry: g});
+  });
+  out.sort(function (a, b) { return a.miles - b.miles; });
+  return {ok: true, tfrs: out.slice(0, 20)};
+}
+
+function toLonLat(g) {
+  if (!g) return null;
+  var conv = function (c) { return [c[0] / 6378137 * 180 / Math.PI, Math.atan(Math.sinh(c[1] / 6378137)) * 180 / Math.PI]; };
+  var mapRing = function (r) { return r.map(conv); };
+  if (g.type === 'Polygon') return {type: 'Polygon', coordinates: g.coordinates.map(mapRing)};
+  if (g.type === 'MultiPolygon') return {type: 'MultiPolygon', coordinates: g.coordinates.map(function (p) { return p.map(mapRing); })};
+  return null;
+}
+function pointInRing(x, y, ring) {
+  var inside = false;
+  for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function haversineMi(a, b, c, d) {
+  var r = Math.PI / 180, x = Math.pow(Math.sin((c - a) * r / 2), 2) + Math.cos(a * r) * Math.cos(c * r) * Math.pow(Math.sin((d - b) * r / 2), 2);
+  return 7917.6 * Math.asin(Math.sqrt(x));
 }

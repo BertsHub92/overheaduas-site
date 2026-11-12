@@ -82,6 +82,23 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .plan-search{display:flex;gap:8px;flex-wrap:wrap}
+  .plan-search input{flex:1 1 200px;padding:11px 12px;font-size:15px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text)}
+  .plan-results{display:grid;gap:4px;margin-top:8px}
+  .plan-hit{text-align:left;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:14px Inter,sans-serif;color:var(--text);cursor:pointer}
+  .plan-hit:hover{border-color:var(--blue)}
+  .plan-map{height:min(58vh,520px);border-radius:12px;margin-top:10px;border:1px solid var(--line);z-index:0}
+  .plan-inputs{margin-top:12px}
+  .plan-inputs input,.plan-inputs select,#plNotes{width:100%;padding:10px 12px;font-size:15px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);font-family:Inter,sans-serif}
+  .plan-brief .brow{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--line);font-size:14.5px}
+  .plan-brief .bl{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--blue);padding-top:3px}
+  .plan-brief .brow > div:last-child > div{margin:3px 0}
+  .tfr-in{color:var(--err);font-weight:600}
+  @media (max-width:600px){.plan-brief .brow{grid-template-columns:1fr;gap:4px}}
+  .plan-msg{margin-top:12px;font-size:14.5px} .plan-msg.good{color:var(--ok)} .plan-msg.bad{color:var(--err)} .plan-msg a{color:var(--blue);font-weight:600}
+  .plan-note{background:var(--blue-soft);color:var(--blue);border-radius:8px;padding:8px 10px;margin-bottom:10px}
+  .grid-lbl{font:700 10px Inter,sans-serif;color:#0b1f33;text-align:center;text-shadow:0 0 3px #fff,0 0 3px #fff}
+  .leaflet-container{font-family:Inter,sans-serif}
   .req-head{display:flex;align-items:center;gap:10px;margin:18px 2px 0}
   .req-head h3{font-size:17px}
   .reqcard{border-left:3px solid var(--blue)}
@@ -302,6 +319,11 @@
         <div class="tile-body"><h3>Forms</h3><p>Checklists, mission records, client and pilot forms</p><span class="tile-meta" id="formCount"></span></div>
         <span class="tile-go">&rsaquo;</span>
       </a>
+      <a class="tile" href="#plan">
+        <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg></div>
+        <div class="tile-body"><h3>Mission Planning</h3><p>Map a location: airspace, LAANC ceiling, TFRs, airports, weather, and sun times</p><span class="tile-meta">Create a mission plan</span></div>
+        <span class="tile-go">&rsaquo;</span>
+      </a>
       <a class="tile" href="#me" id="meTile" hidden>
         <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></div>
         <div class="tile-body"><h3>My Pilot Folder</h3><p>Your FAA certificate, drone registrations, and other certificates</p><span class="tile-meta" id="meMeta"></span></div>
@@ -319,6 +341,7 @@
       </a>
     </div>
     <div id="folderView" hidden></div>
+    <div id="planView" hidden></div>
     <div id="pilotsView" hidden></div>
     <div id="formsView" hidden>
       <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Forms</h2></div>
@@ -332,7 +355,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 7; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 8; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -540,6 +563,16 @@
     let any = false;
     (F.remember || []).forEach(n => { const v = store.get(n); if (v && field(n)) { field(n).value = v; any = true; } });
     q('#fx_remember').checked = any;
+    const pl = planFor(f);
+    if (pl) {
+      const PF = {mission: pl.mission, date: pl.date, time: pl.time, latitude: pl.address ? pl.address.split(',').slice(0, 3).join(',') + ' (' + pl.lat + ')' : String(pl.lat),
+        longitude: String(pl.lon), airspace: pl.airspace, sunset_time: pl.sunset, weather: pl.weather, hazards: pl.hazards};
+      for (const [k, v] of Object.entries(PF)) { const el = field(k); if (el && v && !el.value) el.value = v; }
+      if (/^OVH-205/.test(f.title)) [['f1', pl.risk.wind], ['f3', pl.risk.precip], ['f4', pl.risk.airspace]].forEach(([g, lv]) => { const r = lv && q(`input[data-c="${g}_${lv}"]`); if (r) r.checked = true; });
+      const nb = document.createElement('p'); nb.className = 'note plan-note';
+      nb.innerHTML = `Filled from your mission plan${pl.mission ? ' "' + esc(pl.mission) + '"' : ''}. Check every item.` + (/^OVH-205/.test(f.title) ? ' Wind, precipitation, and airspace were pre-rated.' : '');
+      box.prepend(nb); setTimeout(() => box.dispatchEvent(new Event('change')), 0);
+    }
     if (PROFILE) {
       const nm = PROFILE.name || (ME && ME.name) || '';
       const AF = {pilot_name: nm, pilot: nm, faa_cert: PROFILE.cert, prepared_by: nm, rep: nm};
@@ -1452,6 +1485,24 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         <div class="prow-due">${dueBadge(p)}</div><span class="tile-go">&rsaquo;</span></a>`).join('') || '<p class="note">No pilots yet.</p>'}</div>`;
   }
 
+
+  // ---------- Mission Planning (planner.js + Leaflet, loaded on first use) ----------
+  let plannerPromise = null;
+  const loadAsset = (tag, attrs) => new Promise((ok, bad) => { const el = document.createElement(tag); Object.assign(el, attrs); el.onload = ok; el.onerror = bad; document.head.appendChild(el); });
+  function openPlanner() {
+    const v = $('planView');
+    if (!v.innerHTML) v.innerHTML = '<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div><p class="note">Loading map…</p>';
+    plannerPromise ||= Promise.all([loadAsset('link', {rel: 'stylesheet', href: 'vendor/leaflet/leaflet.css'}), loadAsset('script', {src: 'vendor/leaflet/leaflet.js'})])
+      .then(() => loadAsset('script', {src: 'planner.js?v=' + PAGE_VERSION}));
+    plannerPromise.then(() => window.OUAS_PLANNER.mount(v, {submit: manifest.submit, me: ME, profile: PROFILE, esc, usDate, toB64, loadPdfLib, fetchBytes, saveBlob, shareFile, nowStamp}))
+      .catch(() => { v.innerHTML = '<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div><p class="err-msg">The map could not load. Check your connection and try again.</p>'; plannerPromise = null; });
+  }
+  function planFor(f) {
+    let pl = null; try { pl = JSON.parse(localStorage.getItem('ouas_plan') || 'null'); } catch (e) {}
+    if (!pl || Date.now() - pl.created > 3 * 864e5) return null;
+    return /^OVH-20[15]/.test(f.title) ? pl : null;
+  }
+
   $('unlockForm').addEventListener('submit', async e => {
     e.preventDefault();
     const code = $('code').value;
@@ -1483,15 +1534,17 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     const h = location.hash, admin = ME && ME.role === 'admin', canPilot = !!(ME && manifest.submit);
     let v = 'home';
     if (h === '#forms') v = 'forms';
+    else if (h === '#plan') v = 'plan';
     else if (h === '#me' && canPilot) v = 'folder';
     else if (h === '#pilots' && admin && canPilot) v = 'pilots';
     else if (h.startsWith('#pilot/') && admin && canPilot) v = 'folder';
-    const views = {home: 'home', forms: 'formsView', folder: 'folderView', pilots: 'pilotsView'};
+    const views = {home: 'home', forms: 'formsView', folder: 'folderView', pilots: 'pilotsView', plan: 'planView'};
     Object.entries(views).forEach(([k, id]) => $(id).hidden = k !== v);
     $('formCount').textContent = manifest.forms.length + ' forms';
     $('meTile').hidden = !canPilot; $('adminTile').hidden = !(admin && canPilot);
     if (v === 'folder') openFolder(h === '#me' ? ME.id : decodeURIComponent(h.slice(7)));
     if (v === 'pilots') openPilots();
+    if (v === 'plan') openPlanner();
     window.scrollTo(0, 0);
   }
   window.addEventListener('hashchange', route);
