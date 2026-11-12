@@ -67,8 +67,8 @@ def main(cfg_path):
     codes = cfg['codes']
     if len({norm(c) for c in codes.values()}) != len(codes):
         sys.exit('two pilots have the same code')
-    if any(len(norm(c)) < 16 for c in codes.values()):
-        sys.exit('codes must be long (16+ letters/digits)')
+    if any(len(norm(c)) < 8 for c in codes.values()):
+        sys.exit('codes must be at least 8 letters/digits')
     existing = load_existing(cfg['unlock_with']) if os.path.exists(f'{OUT}/keys.json') and cfg.get('unlock_with') else {}
 
     forms = []
