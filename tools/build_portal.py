@@ -16,7 +16,8 @@ CONFIG.json (keep it OUT of the repo; it contains the codes):
   "codes": {"Bert": "....", "Anthony": "....", "Mike": "...."},
   "forms": [
     {"keep": "O105 Service Agreement"},                         # keep an existing form by title
-    {"title": "...", "desc": "...", "file": "/path/to/new.pdf"} # add a new form
+    {"title": "...", "desc": "...", "file": "/path/to/new.pdf", "fill": {...}} # add a new form
+                                                                 # "fill" (optional) = online fill-out layout
   ]
 }
 Any existing form not listed is removed. Codes not listed lose access.
@@ -75,11 +76,11 @@ def main(cfg_path):
         if 'keep' in f:
             if f['keep'] not in existing: sys.exit(f"no existing form titled {f['keep']!r}")
             e = existing[f['keep']]
-            forms.append(dict(title=e['title'], desc=e.get('desc', ''), filename=e['filename'], type=e['type'], data=e['data']))
+            forms.append(dict(title=e['title'], desc=f.get('desc', e.get('desc', '')), filename=e['filename'], type=e['type'], data=e['data'], fill=f.get('fill', e.get('fill'))))
         else:
             data = open(f['file'], 'rb').read()
             forms.append(dict(title=f['title'], desc=f.get('desc', ''), filename=f.get('filename', os.path.basename(f['file'])),
-                              type=f.get('type', 'application/pdf'), data=data))
+                              type=f.get('type', 'application/pdf'), data=data, fill=f.get('fill')))
 
     # fresh content key + fresh output every build
     K = AESGCM.generate_key(256)
@@ -90,7 +91,9 @@ def main(cfg_path):
     for f in forms:
         fid = 'f-' + secrets.token_hex(8)
         open(f'{OUT}/{fid}.bin', 'wb').write(seal(K, f['data'], fid.encode()))
-        manifest['forms'].append(dict(id=fid, title=f['title'], desc=f['desc'], filename=f['filename'], type=f['type'], size=len(f['data'])))
+        entry = dict(id=fid, title=f['title'], desc=f['desc'], filename=f['filename'], type=f['type'], size=len(f['data']))
+        if f.get('fill'): entry['fill'] = f['fill']
+        manifest['forms'].append(entry)
     open(f'{OUT}/manifest.bin', 'wb').write(seal(K, json.dumps(manifest).encode(), b'manifest'))
 
     salt = secrets.token_bytes(16)
