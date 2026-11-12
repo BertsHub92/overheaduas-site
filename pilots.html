@@ -82,6 +82,11 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .req-head{display:flex;align-items:center;gap:10px;margin:18px 2px 0}
+  .req-head h3{font-size:17px}
+  .reqcard{border-left:3px solid var(--blue)}
+  .reqcard h4{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ok-inline{color:var(--ok);font-weight:600}
   .who-name{font:600 18px "Space Grotesk",sans-serif;color:var(--text)}
   .who-check{color:var(--ok)}
   .who-cert{font-size:14px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -327,7 +332,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 6; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 7; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1295,8 +1300,10 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     if (!ME || !manifest.submit) { $('whoCert').innerHTML = ''; return; }
     if (!PROFILE) { $('whoCert').innerHTML = '<span class="muted">Loading your pilot info…</span>'; return; }
     $('whoCert').innerHTML = PROFILE.cert ? `Part 107 #${esc(PROFILE.cert)} &nbsp;${dueBadge(PROFILE)}` : `<a href="#me">Add your FAA Part 107 info &rsaquo;</a>`;
-    const missing = !MYDOCS.some(d => d.type === 'Part 107 certificate');
-    $('meMeta').textContent = missing ? 'Add a copy of your Part 107 certificate' : MYDOCS.length + ' document' + (MYDOCS.length === 1 ? '' : 's');
+    const miss = missingReq(MYDOCS.map(d => d.type));
+    $('meMeta').textContent = miss.length ? 'Missing: ' + miss.join(' and ').toLowerCase() : MYDOCS.length + ' document' + (MYDOCS.length === 1 ? '' : 's');
+    $('meMeta').classList.toggle('warn-inline', miss.length > 0);
+    if (PROFILE.cert && miss.length) $('whoCert').innerHTML += ` <a href="#me" class="badge amber">${miss.length} required document${miss.length > 1 ? 's' : ''} missing</a>`;
   }
   async function loadMe() {
     updateWho();
@@ -1326,9 +1333,12 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
   }
 
   const DOC_GROUPS = [
-    {type: 'Part 107 certificate', title: 'FAA Part 107 certificate', hint: 'Photo or PDF of your current Remote Pilot Certificate (front and back if it has two sides).', one: true},
+    {type: 'Part 107 certificate', title: 'FAA Part 107 card', hint: 'Photo or PDF of your Remote Pilot Certificate card (front and back if it has two sides).', one: true, req: true},
+    {type: 'Recurrent training certificate', title: 'Recurrent training certificate', hint: 'Completion certificate from your latest FAA recurrent training (FAASafety.gov course ALC-677) or knowledge test.', one: true, req: true, rec: true},
     {type: 'Drone registration', title: 'Drone registrations', hint: 'FAA registration certificate for each drone you fly. Registrations are good for 3 years.', reg: true},
-    {type: 'Other certificate', title: 'Other certificates & training', hint: 'Recurrent training certificate, night training, insurance, other ratings.', other: true}];
+    {type: 'Other certificate', title: 'Other certificates & training', hint: 'Night training, insurance, waivers, other ratings.', other: true}];
+  const REQUIRED = DOC_GROUPS.filter(g => g.req);
+  const missingReq = types => REQUIRED.filter(g => !types.includes(g.type)).map(g => g.title);
 
   async function openFolder(id) {
     const v = $('folderView'), self = ME && id === ME.id;
@@ -1354,7 +1364,8 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
       </div>
       ${DOC_GROUPS.map(g => {
         const mine = docs.filter(d => d.type === g.type);
-        return `<div class="pcard" data-g="${g.type}"><h4>${g.title}</h4><p class="note">${g.hint}</p>
+        return `${g.req && g === REQUIRED[0] ? '<div class="req-head"><h3>FAA Part 107</h3><span class="badge grey">2 documents required</span></div>' : ''}
+          <div class="pcard${g.req ? ' reqcard' : ''}" data-g="${g.type}"><h4>${g.title}${g.req ? (mine.length ? ' <span class="badge green">&#10003; On file</span>' : ' <span class="badge red">Required</span>') : ''}</h4><p class="note">${g.hint}</p>
           ${g.one && !mine.length ? '<p class="warn">No copy on file yet.</p>' : ''}
           <div class="doclist">${mine.map(d => {
             const exp = toIso(d.expires), expired = exp && new Date(exp) < new Date();
@@ -1364,6 +1375,8 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
           <div class="uploader" hidden>
             ${g.reg ? `<div class="grid2"><div class="wide"><label>Drone (make / model)</label><input type="text" data-u="aircraft" placeholder="e.g. DJI Mavic 3 Pro"></div>
               <div><label>FAA registration #</label><input type="text" data-u="reg" placeholder="FA…"></div><div><label>Expires</label><input type="date" data-u="expires"></div></div>` : ''}
+            ${g.rec ? `<div class="grid2"><div><label>Training / test completion date <span class="req">*</span></label><input type="date" data-u="completed"></div></div>
+              <p class="note">This also updates your recurrent date and due date.</p>` : ''}
             ${g.other ? `<div class="grid2"><div class="wide"><label>What is it?</label><input type="text" data-u="title" placeholder="e.g. Recurrent training certificate"></div>
               <div><label>Expires (if any)</label><input type="date" data-u="expires"></div></div>` : ''}
             <label class="filepick"><input type="file" accept="image/*,application/pdf" data-u="file"><span>Choose photo or PDF</span></label>
@@ -1394,11 +1407,20 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         const file = card.querySelector('[data-u=file]').files[0];
         if (!file) return msg(m, 'Choose a photo or PDF first', true);
         if (g.reg && !u('aircraft').trim()) return msg(m, 'Enter the drone make / model', true);
+        if (g.rec && !u('completed')) return msg(m, 'Enter the completion date', true);
+        const recDue = g.rec ? dueInfo({recurrent: u('completed')}) : null;
         b.disabled = true; b.textContent = 'Uploading…';
         try {
           const pf = await prepFile(file);
-          const r = await papi('doc.upload', {target: id, type: g.type, title: g.other ? u('title').trim() || 'Certificate' : g.title, aircraft: u('aircraft').trim(), reg: u('reg').trim(),
-            expires: usDate(u('expires')), filename: pf.name, mime: pf.mime, data: toB64(pf.bytes)});
+          const r = await papi('doc.upload', {target: id, type: g.type, title: g.other ? u('title').trim() || 'Certificate' : g.rec ? 'Recurrent training, completed ' + usDate(u('completed')) : g.title,
+            aircraft: u('aircraft').trim(), reg: u('reg').trim(), expires: g.rec ? usDate(recDue.iso) : usDate(u('expires')), filename: pf.name, mime: pf.mime, data: toB64(pf.bytes)});
+          if (g.rec) {   // keep the profile's recurrent date in step with the newest certificate
+            const cur = toIso(P.recurrent || '');
+            if (!cur || u('completed') > cur) {
+              const prof = {name: P.name, phone: P.phone, email: P.email, cert: P.cert, issued: P.issued, recurrent: usDate(u('completed')), other: P.other, due: usDate(recDue.iso)};
+              try { const sv = await papi('pilot.save', {target: id, profile: prof}); P = sv.profile; if (self) PROFILE = sv.profile; } catch (x) {}
+            }
+          }
           if (self) { MYDOCS = r.docs; updateWho(); }
           drawFolder(v, id, self, P, r.docs);
         } catch (x) { msg(m, 'Upload failed (' + x.message + ')', true); b.disabled = false; b.textContent = 'Upload'; }
@@ -1426,7 +1448,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
       <p class="note">Pilots appear here after they sign in for the first time. Tap a pilot to open their folder.</p>
       <div class="plist">${ps.map(p => `<a class="prow${p.status === 'Inactive' ? ' inactive' : ''}" href="#pilot/${encodeURIComponent(p.id)}">
         <div class="prow-main"><b>${esc(p.name || p.id)}</b>${p.role === 'admin' ? ' <span class="badge grey">Admin</span>' : ''}${p.status === 'Inactive' ? ' <span class="badge grey">Inactive</span>' : ''}
-          <div class="note">${p.cert ? 'Part 107 #' + esc(p.cert) : 'No cert # yet'} · ${p.docCount} document${p.docCount === 1 ? '' : 's'}${p.hasCert ? '' : ' · <span class="warn-inline">no cert copy</span>'}</div></div>
+          <div class="note">${p.cert ? 'Part 107 #' + esc(p.cert) : 'No cert # yet'} · ${p.docCount} document${p.docCount === 1 ? '' : 's'}${(m => m.length ? ' · <span class="warn-inline">missing ' + esc(m.join(' & ').toLowerCase()) + '</span>' : ' · <span class="ok-inline">&#10003; Part 107 docs on file</span>')(missingReq(p.types || (p.hasCert ? ['Part 107 certificate'] : [])))}</div></div>
         <div class="prow-due">${dueBadge(p)}</div><span class="tile-go">&rsaquo;</span></a>`).join('') || '<p class="note">No pilots yet.</p>'}</div>`;
   }
 

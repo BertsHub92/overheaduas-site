@@ -311,6 +311,7 @@ function pilotAction(d) {
     return {ok: true, pilots: rows(P).map(function (o) {
       var p = profileOf(o), mine = docs.filter(function (x) { return String(x['Pilot ID']) === String(p.id); });
       p.docCount = mine.length; p.hasCert = mine.some(function (x) { return x['Type'] === 'Part 107 certificate'; });
+      p.types = mine.map(function (x) { return String(x['Type']); }).filter(function (x, i, arr) { return arr.indexOf(x) === i; });
       return p;
     })};
   }
