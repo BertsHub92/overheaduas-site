@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pilot Portal | Overhead UAS</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#08111b">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#08111b;--panel:#101f2f;--line:#1d3247;--text:#e8eef4;--muted:#93a6b8;--accent:#d4202c;--accent-2:#e8414c;--blue:#4ba3e3;--ok:#6fd39a;--err:#ff8a8f}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:16px/1.6 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column}
+  h1,h2,h3{font-family:"Space Grotesk",Inter,sans-serif;line-height:1.2}
+  a{color:inherit}
+  header{border-bottom:1px solid var(--line)}
+  .bar{max-width:880px;margin:0 auto;padding:0 16px;height:64px;display:flex;align-items:center;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:10px;font:700 18px "Space Grotesk",sans-serif;text-decoration:none}
+  .brand img{width:38px;height:38px;border-radius:50%}
+  .brand b{color:var(--blue)}
+  .back{color:var(--muted);font-size:14px;text-decoration:none}
+  .back:hover{color:var(--text)}
+  main{flex:1;width:100%;max-width:880px;margin:0 auto;padding:56px 16px 72px}
+  .eyebrow{font:600 12px/1 "Space Grotesk",sans-serif;letter-spacing:.18em;text-transform:uppercase;color:var(--blue)}
+  h1{font-size:clamp(30px,5vw,42px);margin:14px 0 10px}
+  .lead{color:var(--muted);max-width:560px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:28px;margin-top:32px}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:8px;font-weight:500}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  input{flex:1 1 260px;background:#0a1520;border:1px solid #23394f;border-radius:10px;padding:14px;color:var(--text);font:16px Inter,sans-serif;letter-spacing:.02em}
+  input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(75,163,227,.18)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 22px;border-radius:999px;font:600 15px Inter,sans-serif;border:0;cursor:pointer;text-decoration:none;transition:.2s}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-2)}
+  .btn-ghost{background:none;border:1px solid #2b4560;color:var(--text)}
+  .btn-ghost:hover{border-color:#c9d1d9}
+  .btn:disabled{opacity:.6;cursor:wait}
+  .msg{margin-top:14px;font-size:14px;min-height:1px}
+  .msg.err{color:var(--err)}
+  .hint{margin-top:16px;font-size:13px;color:#7f93a6}
+  .forms{display:grid;gap:14px;margin-top:20px}
+  .form{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#0b1724;border:1px solid var(--line);border-radius:14px;padding:20px}
+  .form h3{font-size:18px;margin-bottom:4px}
+  .form p{color:var(--muted);font-size:14px;max-width:460px}
+  .form small{color:#6f8396;font-size:12px}
+  .form .actions{display:flex;gap:10px;flex-wrap:wrap}
+  .doc{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:rgba(75,163,227,.12);color:var(--blue);flex:none}
+  .form-main{display:flex;gap:14px;align-items:flex-start;flex:1 1 300px}
+  .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .welcome{color:var(--ok);font-weight:600}
+  [hidden]{display:none !important}
+  footer{border-top:1px solid var(--line);padding:24px 16px;color:#6f8396;font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <a class="brand" href="./"><img src="logo.png" alt="" width="38" height="38"><span>Overhead <b>UAS</b></span></a>
+    <a class="back" href="./">&larr; Back to site</a>
+  </div>
+</header>
+
+<main>
+  <div class="eyebrow">Pilot Portal</div>
+  <h1>Mission forms</h1>
+  <p class="lead">For Overhead UAS pilots. Enter your personal pilot code to download and print the forms you need for your mission.</p>
+
+  <section class="card" id="lock">
+    <form id="unlockForm" autocomplete="off">
+      <label for="code">Pilot code</label>
+      <div class="row">
+        <input id="code" type="password" placeholder="e.g. word-word-word-1234" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+        <button class="btn btn-primary" id="unlockBtn" type="submit">Unlock forms</button>
+      </div>
+      <p class="msg" id="msg" role="status" aria-live="polite"></p>
+      <p class="hint">Don't have a code or lost yours? Contact Overhead UAS at <a href="tel:+17605273267">(760) 527-3267</a>.</p>
+    </form>
+  </section>
+
+  <section class="card" id="files" hidden>
+    <div class="top">
+      <span class="welcome">&#10003; Unlocked</span>
+      <button class="btn btn-ghost" id="lockBtn" type="button">Lock</button>
+    </div>
+    <div class="forms" id="formList"></div>
+    <p class="hint" id="updated"></p>
+  </section>
+</main>
+
+<footer>Overhead UAS &middot; Pilot use only. Please don't share your code.</footer>
+
+<script>
+(() => {
+  const enc = new TextEncoder();
+  const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const norm = c => c.toLowerCase().replace(/[^a-z0-9]/g, '');
+  let K = null, manifest = null;
+  const $ = id => document.getElementById(id);
+
+  async function fetchBytes(path) {
+    const r = await fetch(path, {cache: 'no-store'});
+    if (!r.ok) throw new Error('fetch ' + path);
+    return new Uint8Array(await r.arrayBuffer());
+  }
+  async function open(key, blob, aad) {
+    return new Uint8Array(await crypto.subtle.decrypt(
+      {name: 'AES-GCM', iv: blob.slice(0, 12), additionalData: enc.encode(aad)}, key, blob.slice(12)));
+  }
+
+  async function unlock(code) {
+    const keys = await (await fetch('portal/keys.json', {cache: 'no-store'})).json();
+    const base = await crypto.subtle.importKey('raw', enc.encode(norm(code)), 'PBKDF2', false, ['deriveKey']);
+    const kek = await crypto.subtle.deriveKey(
+      {name: 'PBKDF2', hash: 'SHA-256', salt: unb64(keys.salt), iterations: keys.iter},
+      base, {name: 'AES-GCM', length: 256}, false, ['decrypt']);
+    for (const s of keys.slots) {
+      try {
+        const raw = await crypto.subtle.decrypt(
+          {name: 'AES-GCM', iv: unb64(s.i), additionalData: enc.encode('slot')}, kek, unb64(s.k));
+        return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+      } catch (e) { /* not this slot */ }
+    }
+    return null;
+  }
+
+  function fmtSize(n) { return n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.round(n / 1e3) + ' KB'; }
+
+  function render() {
+    const list = $('formList');
+    list.innerHTML = '';
+    for (const f of manifest.forms) {
+      const el = document.createElement('div');
+      el.className = 'form';
+      el.innerHTML = `
+        <div class="form-main">
+          <div class="doc"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></div>
+          <div><h3></h3><p></p><small></small></div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" data-act="download">Download</button>
+          <button class="btn btn-ghost" data-act="print">Open / Print</button>
+        </div>`;
+      el.querySelector('h3').textContent = f.title;
+      el.querySelector('p').textContent = f.desc || '';
+      el.querySelector('small').textContent = 'PDF · ' + fmtSize(f.size);
+      el.querySelector('[data-act=download]').onclick = e => getFile(f, 'download', e.currentTarget);
+      el.querySelector('[data-act=print]').onclick = e => getFile(f, 'print', e.currentTarget);
+      list.appendChild(el);
+    }
+    $('updated').textContent = 'Forms last updated ' + manifest.updated + '.';
+  }
+
+  async function getFile(f, mode, btn) {
+    const tab = mode === 'print' ? window.open('', '_blank') : null;
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Preparing…';
+    try {
+      const data = await open(K, await fetchBytes('portal/' + f.id + '.bin'), f.id);
+      const url = URL.createObjectURL(new Blob([data], {type: f.type}));
+      if (mode === 'print') {
+        if (tab) tab.location.href = url; else location.href = url;
+      } else {
+        const a = document.createElement('a');
+        a.href = url; a.download = f.filename;
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      if (tab) tab.close();
+      alert('Sorry, that file could not be opened. Please try again or contact Overhead UAS.');
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  }
+
+  $('unlockForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const code = $('code').value;
+    const btn = $('unlockBtn'), msg = $('msg');
+    msg.className = 'msg'; msg.textContent = '';
+    if (norm(code).length < 8) { msg.className = 'msg err'; msg.textContent = 'Please enter your full pilot code.'; return; }
+    btn.disabled = true; btn.textContent = 'Checking…';
+    try {
+      K = await unlock(code);
+      if (!K) { msg.className = 'msg err'; msg.textContent = "That code didn't work. Check for typos, or contact Overhead UAS for a new code."; return; }
+      manifest = JSON.parse(new TextDecoder().decode(await open(K, await fetchBytes('portal/manifest.bin'), 'manifest')));
+      render();
+      $('code').value = '';
+      $('lock').hidden = true; $('files').hidden = false;
+    } catch (err) {
+      msg.className = 'msg err'; msg.textContent = 'Something went wrong loading the portal. Please try again.';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Unlock forms';
+    }
+  });
+
+  $('lockBtn').addEventListener('click', () => {
+    K = null; manifest = null; $('formList').innerHTML = '';
+    $('files').hidden = true; $('lock').hidden = false; $('code').focus();
+  });
+})();
+</script>
+</body>
+</html>
