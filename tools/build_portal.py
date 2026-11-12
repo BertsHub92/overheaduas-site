@@ -76,11 +76,11 @@ def main(cfg_path):
         if 'keep' in f:
             if f['keep'] not in existing: sys.exit(f"no existing form titled {f['keep']!r}")
             e = existing[f['keep']]
-            forms.append(dict(title=e['title'], desc=f.get('desc', e.get('desc', '')), filename=e['filename'], type=e['type'], data=e['data'], fill=f.get('fill', e.get('fill'))))
+            forms.append(dict(title=e['title'], desc=f.get('desc', e.get('desc', '')), filename=e['filename'], type=e['type'], data=e['data'], fill=f.get('fill', e.get('fill')), app=f.get('app', e.get('app'))))
         else:
-            data = open(f['file'], 'rb').read()
-            forms.append(dict(title=f['title'], desc=f.get('desc', ''), filename=f.get('filename', os.path.basename(f['file'])),
-                              type=f.get('type', 'application/pdf'), data=data, fill=f.get('fill')))
+            data = open(f['file'], 'rb').read() if f.get('file') else b''
+            forms.append(dict(title=f['title'], desc=f.get('desc', ''), filename=f.get('filename', os.path.basename(f.get('file', ''))),
+                              type=f.get('type', 'application/pdf'), data=data, fill=f.get('fill'), app=f.get('app')))
 
     # fresh content key + fresh output every build
     K = AESGCM.generate_key(256)
@@ -93,6 +93,7 @@ def main(cfg_path):
         open(f'{OUT}/{fid}.bin', 'wb').write(seal(K, f['data'], fid.encode()))
         entry = dict(id=fid, title=f['title'], desc=f['desc'], filename=f['filename'], type=f['type'], size=len(f['data']))
         if f.get('fill'): entry['fill'] = f['fill']
+        if f.get('app'): entry['app'] = f['app']
         manifest['forms'].append(entry)
     open(f'{OUT}/manifest.bin', 'wb').write(seal(K, json.dumps(manifest).encode(), b'manifest'))
 

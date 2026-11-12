@@ -72,12 +72,40 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .form > .fill{flex-basis:100%}
+  .m-log .radios{flex-direction:column;align-items:flex-start;gap:10px}
+  .checklist{display:grid;gap:8px}
+  .ci{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#0a1520}
+  .ci.fail{border-color:rgba(239,59,69,.6)}
+  .ci.invalid{border-color:var(--err);box-shadow:0 0 0 3px rgba(239,59,69,.15)}
+  .ci-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .ci-n{font:700 13px "Space Grotesk";color:var(--blue);width:20px}
+  .ci-t{flex:1 1 200px;font-size:14.5px}
+  .seg{display:inline-flex;border:1px solid #2b4560;border-radius:999px;overflow:hidden}
+  .seg label{margin:0;cursor:pointer}
+  .seg input{position:absolute;opacity:0;pointer-events:none}
+  .seg span{display:block;padding:7px 14px;font-size:13.5px;font-weight:600;color:var(--muted)}
+  .seg label+label span{border-left:1px solid #2b4560}
+  .seg input:checked+span{background:var(--blue);color:#fff}
+  .seg input[value=Fail]:checked+span{background:var(--accent)}
+  .seg input[value="N/A"]:checked+span{background:#55697d}
+  .ci-note{margin-top:8px;width:100%}
+  .bats{display:grid;gap:8px;margin-bottom:10px}
+  .bat{display:grid;grid-template-columns:1.1fr .7fr .7fr 1.5fr 1.4fr auto;gap:8px;align-items:center}
+  .bat input,.bat select,.other-ac input,.m-aircraft input,.fill input[type=text].ci-note{width:100%;padding:10px;font-size:14.5px}
+  .bat-x{background:none;border:1px solid #2b4560;color:var(--muted);border-radius:8px;width:36px;height:40px;font-size:20px;cursor:pointer}
+  .other-ac{margin-top:12px;padding:12px;border:1px dashed #2b4560;border-radius:10px}
+  .mtable-wrap{overflow-x:auto}
+  .mtable{width:100%;border-collapse:collapse;font-size:14px}
+  .mtable th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em;padding:8px;border-bottom:1px solid var(--line)}
+  .mtable td{padding:9px 8px;border-bottom:1px solid var(--line)}
+  @media (max-width:600px){.bat{grid-template-columns:1fr 1fr}.bat select,.bat [data-b=notes]{grid-column:1/-1}.bat-x{grid-column:2;justify-self:end}}
   .fill textarea,.fill select{width:100%;background:#0a1520;border:1px solid #23394f;border-radius:10px;padding:11px 12px;color:var(--text);font:15px Inter,sans-serif}
   .fill textarea{resize:vertical;min-height:70px}
   .fill textarea:focus,.fill select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(75,163,227,.18)}
   .radios{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:12px}
   .radios label{display:flex;gap:8px;align-items:center;margin:0;color:var(--text);font-size:15px;cursor:pointer}
-  .radios input{width:18px;height:18px;accent-color:var(--blue)}
+  .radios input{width:18px;height:18px;accent-color:var(--blue);flex:none;padding:0}
   .radio-label{font-size:13px;color:var(--muted);font-weight:500}
   .radios.invalid{outline:2px solid var(--err);outline-offset:6px;border-radius:6px}
   .sig.sketch .sig-preview{height:180px;background:#fff radial-gradient(#cfd6dd 1px,transparent 1.2px) 0 0/14px 14px}
@@ -208,6 +236,7 @@
       el.querySelector('h3').textContent = f.title;
       el.querySelector('p').textContent = f.desc || '';
       el.querySelector('small').textContent = 'PDF · ' + fmtSize(f.size) + (f.fill ? ' · fillable' : '');
+      if (f.app) { renderApp(f, el); list.appendChild(el); continue; }
       if (f.fill) { const fb = el.querySelector('[data-act=fill]'); fb.hidden = false; fb.onclick = () => openFill(f, el); }
       el.querySelector('[data-act=download]').onclick = e => getFile(f, 'download', e.currentTarget);
       el.querySelector('[data-act=print]').onclick = e => getFile(f, 'print', e.currentTarget);
@@ -586,6 +615,403 @@
       btn.disabled = false; btn.textContent = label;
     }
   }
+
+  // ---------- OVH-204 Maintenance & Repair Log (online only) ----------
+  async function api(app, action, body = {}) {
+    const res = await fetch(app.submit.url, {method: 'POST', body: JSON.stringify(Object.assign({token: app.submit.token, action}, body))});
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.error || 'request failed');
+    return j;
+  }
+  const acLabel = a => [a.nickname, a.model].filter(Boolean).join(' – ') + (a.reg ? `  (${a.reg})` : '');
+  let aircraftCache = null;
+  async function getAircraft(app, force) {
+    if (!aircraftCache || force) aircraftCache = (await api(app, 'aircraft.list')).aircraft || [];
+    return aircraftCache;
+  }
+  function panel(card, cls) {
+    card.querySelectorAll('.mpanel').forEach(p => p.remove());
+    const box = document.createElement('div'); box.className = 'fill mpanel ' + cls; card.appendChild(box); return box;
+  }
+
+  function renderApp(f, el) {
+    const acts = el.querySelector('.actions');
+    acts.innerHTML = `<button class="btn btn-primary" data-m="log">Log maintenance</button>
+      <button class="btn btn-ghost" data-m="aircraft">Aircraft</button>
+      <button class="btn btn-ghost" data-m="history">Print history</button>`;
+    acts.querySelector('[data-m=log]').onclick = () => openMaint(f, el);
+    acts.querySelector('[data-m=aircraft]').onclick = () => openAircraft(f, el);
+    acts.querySelector('[data-m=history]').onclick = () => openHistory(f, el);
+    el.querySelector('small').textContent = 'Online only · saved to the Overhead UAS maintenance records';
+  }
+
+  // ----- Aircraft list + add
+  async function openAircraft(f, card) {
+    const app = f.app, box = panel(card, 'm-aircraft');
+    box.innerHTML = '<h4>Aircraft</h4><p class="note">Loading…</p>';
+    const draw = list => {
+      box.innerHTML = `<h4>Aircraft</h4>
+        ${list.length ? `<div class="mtable-wrap"><table class="mtable"><tr><th>Nickname</th><th>Make / model</th><th>Serial #</th><th>FAA reg #</th></tr>
+          ${list.map(a => `<tr><td>${esc(a.nickname || '')}</td><td>${esc(a.model || '')}</td><td>${esc(a.serial || '')}</td><td>${esc(a.reg || '')}</td></tr>`).join('')}</table></div>`
+          : '<p class="note">No aircraft yet. Add your first one below.</p>'}
+        <h4>Add an aircraft</h4>
+        <div class="grid2">
+          <div><label>Nickname</label><input type="text" data-a="nickname" placeholder="e.g. Oscar 991"></div>
+          <div><label>Make / model <span class="req">*</span></label><input type="text" data-a="model" placeholder="e.g. DJI Mavic 3 Pro"></div>
+          <div><label>Serial #</label><input type="text" data-a="serial"></div>
+          <div><label>FAA registration #</label><input type="text" data-a="reg" placeholder="FA…"></div>
+        </div>
+        <p class="msg err" data-role="err" hidden></p>
+        <div class="fill-actions"><button class="btn btn-primary" data-x="add">Add aircraft</button><button class="btn btn-ghost" data-x="close">Close</button></div>`;
+      box.querySelector('[data-x=close]').onclick = () => box.remove();
+      box.querySelector('[data-x=add]').onclick = async e => {
+        const v = k => box.querySelector(`[data-a=${k}]`).value.trim(), err = box.querySelector('[data-role=err]');
+        if (!v('model')) { err.hidden = false; err.textContent = 'Enter the make / model.'; return; }
+        e.currentTarget.disabled = true; e.currentTarget.textContent = 'Adding…';
+        try {
+          const r = await api(app, 'aircraft.add', {aircraft: {nickname: v('nickname'), model: v('model'), serial: v('serial'), reg: v('reg')}, by: store.get('pilot_name')});
+          aircraftCache = r.aircraft; draw(r.aircraft);
+        } catch (x) { err.hidden = false; err.textContent = 'Could not add the aircraft (' + x.message + '). Check your connection and try again.'; e.currentTarget.disabled = false; e.currentTarget.textContent = 'Add aircraft'; }
+      };
+    };
+    try { draw(await getAircraft(app, true)); }
+    catch (x) { box.innerHTML = `<h4>Aircraft</h4><p class="err-msg">Could not load the aircraft list (${esc(x.message)}). Check your connection.</p>`; }
+  }
+
+  // ----- Log a maintenance entry
+  async function openMaint(f, card) {
+    const app = f.app, box = panel(card, 'm-log');
+    box._sigs = {};
+    box.innerHTML = '<p class="note">Loading aircraft…</p>';
+    let list = [];
+    try { list = await getAircraft(app); } catch (x) { box.innerHTML = `<p class="err-msg">Could not load the aircraft list (${esc(x.message)}). Check your connection and try again.</p>`; return; }
+    const items = app.items || [];
+    box.innerHTML = `
+      <h4>Aircraft</h4>
+      <div class="grid2">
+        <div class="wide"><label>Aircraft <span class="req">*</span></label><select data-k="aircraft">
+          <option value="">Select aircraft…</option>${list.map((a, i) => `<option value="${i}">${esc(acLabel(a))}</option>`).join('')}<option value="other">Other aircraft…</option></select></div>
+      </div>
+      <div class="grid2 other-ac" hidden>
+        <div><label>Nickname</label><input type="text" data-o="nickname"></div>
+        <div><label>Make / model <span class="req">*</span></label><input type="text" data-o="model" placeholder="e.g. Autel EVO II"></div>
+        <div><label>Serial #</label><input type="text" data-o="serial"></div>
+        <div><label>FAA registration #</label><input type="text" data-o="reg"></div>
+        <label class="remember wide"><input type="checkbox" data-o="save" checked>Add this aircraft to the list</label>
+      </div>
+      <h4>Entry</h4>
+      <div class="radios" data-group="etype"><span class="radio-label">Entry type <span class="req">*</span></span>
+        ${['Monthly inspection', 'Repair / maintenance', 'Battery check'].map((t, i) => `<label><input type="radio" name="etype" value="${t}"${i === 0 ? ' checked' : ''}>${t}</label>`).join('')}</div>
+      <div class="grid2" style="margin-top:12px">
+        <div><label>Date <span class="req">*</span></label><input type="date" data-k="date"></div>
+        <div><label>Pilot / technician <span class="req">*</span></label><input type="text" data-k="pilot"></div>
+        <div><label>Total aircraft flight time (hrs)</label><input type="number" step="0.1" min="0" inputmode="decimal" data-k="hours"></div>
+        <div><label>Firmware version</label><input type="text" data-k="firmware" placeholder="Aircraft / controller"></div>
+      </div>
+      <div class="m-insp">
+        <h4>Inspection checklist</h4>
+        <p class="note" style="margin-top:-4px">Mark every item. Any FAIL grounds the aircraft and notifies Overhead UAS.</p>
+        <div class="checklist">${items.map((it, i) => `
+          <div class="ci" data-i="${i}"><div class="ci-top"><span class="ci-n">${i + 1}</span><span class="ci-t">${esc(it)}</span>
+            <span class="seg">${['Pass', 'Fail', 'N/A'].map(r => `<label><input type="radio" name="ci${i}" value="${r}"><span>${r}</span></label>`).join('')}</span></div>
+            <input type="text" class="ci-note" placeholder="Describe the problem" hidden></div>`).join('')}</div>
+        <button class="btn btn-ghost" type="button" data-x="allpass" style="margin-top:10px">Mark all remaining as Pass</button>
+      </div>
+      <h4>Batteries</h4>
+      <p class="note" style="margin-top:-4px">Add each battery checked. Swollen or damaged batteries must be removed from service.</p>
+      <div class="bats"></div>
+      <button class="btn btn-ghost" type="button" data-x="addbat">+ Add battery</button>
+      <div class="m-work"><h4>Work performed / parts replaced</h4>
+        <textarea data-k="work" rows="3" placeholder="e.g. Replaced 4 propellers, recalibrated compass, updated firmware"></textarea></div>
+      <h4>Aircraft status</h4>
+      <div class="radios" data-group="status"><span class="radio-label">After this entry <span class="req">*</span></span>
+        <label><input type="radio" name="status" value="AIRWORTHY">Airworthy</label><label><input type="radio" name="status" value="GROUNDED">Grounded</label></div>
+      <p class="note status-note" hidden>A failed item grounds the aircraft until a repair entry returns it to service.</p>
+      <h4>Notes</h4><textarea data-k="notes" rows="2"></textarea>
+      <h4>Signature</h4><div class="sigs"><div class="sig" data-sig="pilot"><div class="sig-preview"><span>Not signed yet</span></div>
+        <div class="sig-row"><span class="sig-label">Pilot / technician signature <span class="req">*</span></span><button class="btn btn-ghost sig-btn" type="button" data-sign="pilot">Sign</button></div></div></div>
+      <label class="remember"><input type="checkbox" data-k="remember">Remember my name on this device</label>
+      <p class="msg err" data-role="err" hidden></p>
+      <div class="fill-actions"><button class="btn btn-primary" data-x="submit">Save to maintenance log</button><button class="btn btn-ghost" data-x="cancel">Cancel</button></div>
+      <div class="done" data-role="done" hidden></div>
+      <p class="note">Saved entries go to the Overhead UAS maintenance records. Only failed or grounded entries send an email.</p>`;
+    const q = s => box.querySelector(s), qa = s => [...box.querySelectorAll(s)];
+    q('[data-k=date]').value = todayIso();
+    const pn = store.get('pilot_name'); if (pn) { q('[data-k=pilot]').value = pn; q('[data-k=remember]').checked = true; }
+    const etype = () => q('input[name=etype]:checked').value;
+    const sync = () => {
+      const t = etype();
+      q('.m-insp').hidden = t !== 'Monthly inspection';
+      q('.m-work').querySelector('h4').innerHTML = 'Work performed / parts replaced' + (t === 'Repair / maintenance' ? ' <span class="req">*</span>' : '');
+      const failed = t === 'Monthly inspection' && qa('.ci input[value=Fail]:checked').length > 0;
+      q('input[name=status][value=AIRWORTHY]').disabled = failed;
+      if (failed) q('input[name=status][value=GROUNDED]').checked = true;
+      q('.status-note').hidden = !failed;
+    };
+    q('[data-k=aircraft]').onchange = e => { q('.other-ac').hidden = e.target.value !== 'other'; e.target.classList.remove('invalid'); };
+    qa('input[name=etype]').forEach(r => r.onchange = sync);
+    qa('.ci').forEach(ci => ci.addEventListener('change', () => {
+      const fail = ci.querySelector('input[value=Fail]').checked;
+      ci.querySelector('.ci-note').hidden = !fail; ci.classList.toggle('fail', fail); ci.classList.remove('invalid'); sync();
+    }));
+    q('[data-x=allpass]').onclick = () => { qa('.ci').forEach(ci => { if (!ci.querySelector('input:checked')) { ci.querySelector('input[value=Pass]').checked = true; ci.classList.remove('invalid'); } }); sync(); };
+    const addBat = () => {
+      const row = document.createElement('div'); row.className = 'bat';
+      row.innerHTML = `<input type="text" data-b="id" placeholder="Battery ID / #">
+        <input type="number" data-b="cycles" placeholder="Cycles" min="0" inputmode="numeric">
+        <input type="number" data-b="health" placeholder="Health %" min="0" max="100" inputmode="numeric">
+        <select data-b="condition"><option>Good</option><option>Worn – monitor</option><option>Swollen / damaged – retire</option></select>
+        <input type="text" data-b="notes" placeholder="Notes">
+        <button type="button" class="bat-x" aria-label="Remove battery">&times;</button>`;
+      row.querySelector('.bat-x').onclick = () => row.remove();
+      q('.bats').appendChild(row);
+    };
+    q('[data-x=addbat]').onclick = addBat;
+    q('[data-sign=pilot]').onclick = () => signaturePad('Pilot / technician', q('[data-k=pilot]').value.trim(), png => {
+      box._sigs.pilot = {png, when: nowStamp(), name: q('[data-k=pilot]').value.trim()};
+      const el = q('[data-sig=pilot]'); el.classList.remove('invalid'); el.classList.add('signed');
+      el.querySelector('.sig-preview').innerHTML = `<img alt="signature" src="${png}"><small>Signed ${esc(box._sigs.pilot.when)}</small>`;
+      q('[data-sign=pilot]').textContent = 'Redo';
+    });
+    q('[data-x=cancel]').onclick = () => { if (confirm('Discard this entry?')) box.remove(); };
+    box.addEventListener('input', e => e.target.classList.remove('invalid'));
+    box.addEventListener('change', e => e.target.closest('.radios')?.classList.remove('invalid'));
+    sync();
+    q('[data-x=submit]').onclick = e => submitMaint(f, box, list, e.currentTarget);
+    q('[data-k=aircraft]').focus();
+  }
+
+  function collectMaint(f, box, list) {
+    const q = s => box.querySelector(s), qa = s => [...box.querySelectorAll(s)], v = k => (q(`[data-k=${k}]`)?.value || '').trim();
+    const sel = q('[data-k=aircraft]').value;
+    let aircraft;
+    if (sel === 'other') {
+      const o = k => q(`[data-o=${k}]`).value.trim();
+      aircraft = {isNew: true, save: q('[data-o=save]').checked, nickname: o('nickname'), model: o('model'), serial: o('serial'), reg: o('reg')};
+    } else if (sel !== '') aircraft = Object.assign({}, list[+sel]);
+    const type = q('input[name=etype]:checked').value;
+    const checklist = type === 'Monthly inspection' ? qa('.ci').map(ci => ({item: f.app.items[+ci.dataset.i], result: ci.querySelector('input:checked')?.value || '', note: ci.querySelector('.ci-note').value.trim()})) : [];
+    const batteries = qa('.bat').map(r => ({id: r.querySelector('[data-b=id]').value.trim(), cycles: r.querySelector('[data-b=cycles]').value.trim(),
+      health: r.querySelector('[data-b=health]').value.trim(), condition: r.querySelector('[data-b=condition]').value, notes: r.querySelector('[data-b=notes]').value.trim()}))
+      .filter(b => b.id || b.cycles || b.health || b.notes);
+    const status = q('input[name=status]:checked')?.value || '';
+    const failed = checklist.filter(c => c.result === 'Fail');
+    const retired = batteries.filter(b => /retire/i.test(b.condition));
+    const alerts = [...failed.map(c => `${c.item}: FAIL${c.note ? ' (' + c.note + ')' : ''}`), ...retired.map(b => `Battery ${b.id || '?'}: ${b.condition}${b.notes ? ' (' + b.notes + ')' : ''}`)];
+    if (status === 'GROUNDED' && !failed.length) alerts.unshift('Aircraft marked GROUNDED by pilot');
+    return {aircraft, type, date: usDate(v('date')), pilot: v('pilot'), hours: v('hours'), firmware: v('firmware'), work: v('work'), notes: v('notes'),
+      checklist, batteries, result: status, failed: failed.map(c => c.item), alerts, alert: alerts.length > 0};
+  }
+
+  function validateMaint(box, e) {
+    const q = s => box.querySelector(s), qa = s => [...box.querySelectorAll(s)], missing = [];
+    box.querySelectorAll('.invalid').forEach(x => x.classList.remove('invalid'));
+    const bad = el => { el.classList.add('invalid'); missing.push(el); };
+    if (!e.aircraft) bad(q('[data-k=aircraft]'));
+    else if (e.aircraft.isNew && !e.aircraft.model) bad(q('[data-o=model]'));
+    if (!e.date) bad(q('[data-k=date]'));
+    if (!e.pilot) bad(q('[data-k=pilot]'));
+    if (e.type === 'Monthly inspection') qa('.ci').forEach(ci => {
+      const r = ci.querySelector('input:checked');
+      if (!r) bad(ci); else if (r.value === 'Fail' && !ci.querySelector('.ci-note').value.trim()) bad(ci.querySelector('.ci-note'));
+    });
+    if (e.type === 'Repair / maintenance' && !e.work) bad(q('[data-k=work]'));
+    if (e.type === 'Battery check' && !e.batteries.length) bad(q('[data-x=addbat]'));
+    qa('.bat').forEach(r => { if (!r.querySelector('[data-b=id]').value.trim() && (r.querySelector('[data-b=cycles]').value || r.querySelector('[data-b=health]').value)) bad(r.querySelector('[data-b=id]')); });
+    if (!e.result) bad(q('[data-group=status]'));
+    if (!box._sigs.pilot) bad(q('[data-sig=pilot]'));
+    const err = q('[data-role=err]');
+    if (missing.length) { err.hidden = false; err.textContent = `Please complete the ${missing.length} highlighted item${missing.length > 1 ? 's' : ''}.`; missing[0].scrollIntoView({behavior: 'smooth', block: 'center'}); return false; }
+    err.hidden = true; return true;
+  }
+
+  // Draw the signed maintenance record as a PDF (Letter) with pdf-lib.
+  async function maintPdf(e, sig, docId) {
+    const {PDFDocument, StandardFonts, rgb} = await loadPdfLib();
+    const doc = await PDFDocument.create();
+    doc.setTitle('OVH-204 Maintenance & Repair Log entry'); doc.setAuthor('Overhead UAS');
+    const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    let logo = null; try { logo = await doc.embedPng(await fetchBytes('logo.png')); } catch (x) {}
+    const NAVY = rgb(0.043, 0.122, 0.2), GREY = rgb(0.36, 0.42, 0.48), RED = rgb(0.78, 0.06, 0.18), GREEN = rgb(0.1, 0.5, 0.25), LINE = rgb(0.6, 0.65, 0.7), TINT = rgb(0.95, 0.96, 0.97);
+    const W = 612, H = 792, M = 50, FW = W - 2 * M;
+    let page, y;
+    const footer = () => { page.drawLine({start: {x: M, y: 50}, end: {x: W - M, y: 50}, thickness: 0.5, color: LINE});
+      page.drawText('Overhead UAS  ·  www.overheaduas.com  ·  (760) 527-3267', {x: M, y: 36, size: 7.5, font, color: GREY});
+      page.drawText('OVH-204  ·  Rev. 11/2026  ·  Document ID: ' + docId, {x: W - M - font.widthOfTextAtSize('OVH-204  ·  Rev. 11/2026  ·  Document ID: ' + docId, 7.5), y: 36, size: 7.5, font, color: GREY}); };
+    const newPage = () => { if (page) footer(); page = doc.addPage([W, H]); y = H - M; };
+    const need = h => { if (y - h < 64) { newPage(); } };
+    const wrap = (t, size, maxW, f = font) => { const out = []; for (const para of String(t || '').split(/\n/)) { let line = ''; for (const w of para.split(/\s+/)) { const tt = line ? line + ' ' + w : w; if (f.widthOfTextAtSize(tt, size) > maxW && line) { out.push(line); line = w; } else line = tt; } out.push(line); } return out; };
+    const text = (t, x, yy, size = 9.5, f = font, color = rgb(0, 0, 0)) => page.drawText(String(t), {x, y: yy, size, font: f, color});
+    const section = t => { need(30); y -= 8; page.drawRectangle({x: M, y: y - 15, width: FW, height: 15, color: NAVY}); text(t, M + 6, y - 11, 8.5, bold, rgb(1, 1, 1)); y -= 19; };
+    newPage();
+    if (logo) page.drawImage(logo, {x: W - M - 60, y: H - M - 56, width: 60, height: 60});
+    text('MAINTENANCE & REPAIR LOG', M, y - 16, 18, bold, NAVY);
+    text('OVERHEAD UAS', M, y - 30, 9, bold, RED);
+    text('OVH-204  ·  Rev. 11/2026', M, y - 42, 7.5, font, GREY);
+    y -= 70;
+    // status banner
+    const grounded = e.result === 'GROUNDED';
+    page.drawRectangle({x: M, y: y - 26, width: FW, height: 26, color: grounded ? rgb(0.99, 0.91, 0.91) : rgb(0.9, 0.97, 0.92), borderColor: grounded ? RED : GREEN, borderWidth: 1});
+    text(grounded ? 'AIRCRAFT STATUS: GROUNDED' : 'AIRCRAFT STATUS: AIRWORTHY', M + 10, y - 17, 11, bold, grounded ? RED : GREEN);
+    text(e.type.toUpperCase(), W - M - 10 - bold.widthOfTextAtSize(e.type.toUpperCase(), 9), y - 16.5, 9, bold, NAVY);
+    y -= 34;
+    const a = e.aircraft || {};
+    const grid = [['Aircraft', [a.nickname, a.model].filter(Boolean).join(' – ') || '-'], ['Aircraft ID', a.id || (a.isNew ? 'New / other' : '-')],
+      ['Serial #', a.serial || '-'], ['FAA registration #', a.reg || '-'], ['Date', e.date || '-'], ['Pilot / technician', e.pilot || '-'],
+      ['Total flight time (hrs)', e.hours || '-'], ['Firmware', e.firmware || '-']];
+    for (let i = 0; i < grid.length; i += 2) {
+      for (let j = 0; j < 2; j++) { const [l, v] = grid[i + j], x = M + j * FW / 2;
+        page.drawRectangle({x, y: y - 28, width: FW / 2, height: 28, borderColor: LINE, borderWidth: 0.6});
+        text(l.toUpperCase(), x + 5, y - 9, 6.5, bold, NAVY); text(wrap(v, 10, FW / 2 - 10)[0], x + 5, y - 22, 10); }
+      y -= 28;
+    }
+    if (e.checklist.length) {
+      section('INSPECTION CHECKLIST');
+      e.checklist.forEach((c, i) => {
+        const note = c.note ? wrap('Note: ' + c.note, 8, FW - 120) : [];
+        const h = 16 + note.length * 10; need(h);
+        if (i % 2) page.drawRectangle({x: M, y: y - h, width: FW, height: h, color: TINT});
+        text(String(i + 1), M + 6, y - 11.5, 8.5, bold, GREY);
+        text(wrap(c.item, 9, FW - 110)[0], M + 24, y - 11.5, 9);
+        const col = c.result === 'Fail' ? RED : c.result === 'Pass' ? GREEN : GREY;
+        text(c.result.toUpperCase(), W - M - 8 - bold.widthOfTextAtSize(c.result.toUpperCase(), 9), y - 11.5, 9, bold, col);
+        note.forEach((l, k) => text(l, M + 24, y - 23 - k * 10, 8, font, RED));
+        y -= h;
+      });
+    }
+    if (e.batteries.length) {
+      section('BATTERIES');
+      const cols = [['Battery ID', 90], ['Cycles', 55], ['Health %', 60], ['Condition', 140], ['Notes', FW - 345]];
+      need(16); let x = M; cols.forEach(([l, w]) => { text(l.toUpperCase(), x + 5, y - 10, 6.8, bold, NAVY); x += w; }); y -= 14;
+      e.batteries.forEach((b, i) => {
+        need(16); if (i % 2) page.drawRectangle({x: M, y: y - 16, width: FW, height: 16, color: TINT});
+        const vals = [b.id || '-', b.cycles || '-', b.health ? b.health + '%' : '-', b.condition, b.notes || ''];
+        let xx = M; cols.forEach(([l, w], k) => { text(wrap(vals[k], 8.5, w - 8)[0], xx + 5, y - 11.5, 8.5, k === 3 && /retire/i.test(b.condition) ? bold : font, k === 3 && /retire/i.test(b.condition) ? RED : rgb(0, 0, 0)); xx += w; });
+        y -= 16;
+      });
+    }
+    for (const [t, v] of [['WORK PERFORMED / PARTS REPLACED', e.work], ['NOTES', e.notes]]) {
+      if (!v) continue;
+      section(t);
+      wrap(v, 9.5, FW - 10).forEach(l => { need(13); text(l, M + 5, y - 10, 9.5); y -= 13; });
+    }
+    // signature
+    need(90); section('SIGNATURE');
+    page.drawRectangle({x: M, y: y - 48, width: FW, height: 48, borderColor: LINE, borderWidth: 0.6});
+    text('PILOT / TECHNICIAN SIGNATURE', M + 5, y - 9, 6.5, bold, NAVY);
+    if (sig) { const img = await doc.embedPng(sig.png), sc = Math.min(32 / img.height, 200 / img.width); page.drawImage(img, {x: M + 8, y: y - 44, width: img.width * sc, height: img.height * sc}); }
+    text(e.pilot || '', M + FW / 2 + 10, y - 30, 10);
+    y -= 56;
+    const rec = `Electronically signed via the Overhead UAS Pilot Portal (overheaduas.com) by ${sig?.name || e.pilot} on ${sig?.when}. Document ID: ${docId}`;
+    wrap(rec, 7, FW).forEach(l => { need(9); text(l, M, y - 7, 7, font, GREY); y -= 9; });
+    footer();
+    return doc.save();
+  }
+
+  async function submitMaint(f, box, list, btn) {
+    const e = collectMaint(f, box, list);
+    if (!validateMaint(box, e)) return;
+    const label = btn.textContent; btn.disabled = true; btn.textContent = 'Saving…';
+    const done = box.querySelector('[data-role=done]');
+    try {
+      store.set('pilot_name', box.querySelector('[data-k=remember]').checked ? e.pilot : '');
+      const docId = 'OUAS-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+      const bytes = await maintPdf(e, box._sigs.pilot, docId);
+      const acName = (e.aircraft.nickname || e.aircraft.model || 'Aircraft').replace(/[^A-Za-z0-9]+/g, '_');
+      const name = `OVH-204_${acName}_${e.type.split(' ')[0]}_${e.date.replace(/\//g, '-')}.pdf`;
+      const url = URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'}));
+      let r = null, err = '';
+      try { r = await api(f.app, 'maint.submit', {entry: e, pdf: toB64(bytes), filename: name, docId}); }
+      catch (x) { err = x.message; }
+      box.querySelector('.fill-actions').hidden = true;
+      done.hidden = false;
+      done.innerHTML = r
+        ? `<p class="ok-msg"><b>&#10003; Saved to the maintenance log.</b> ${r.emailed ? 'Overhead UAS was notified because of the problem(s) found.' : 'No email was sent.'}${e.aircraft.isNew && e.aircraft.save ? ' The aircraft was added to the list.' : ''}</p>`
+        : `<p class="err-msg"><b>This entry could not be saved</b> (${esc(err)}). Download the record below and send it to overheaduas@gmail.com, or try again when you have a connection.</p>`;
+      done.innerHTML += `<p class="note">Document ID: ${esc(docId)}</p><div class="fill-actions"><button class="btn btn-ghost" data-d="dl">Download record</button>${r ? '' : '<button class="btn btn-primary" data-d="retry">Try again</button>'}<button class="btn btn-ghost" data-d="new">Log another entry</button></div>`;
+      done.querySelector('[data-d=dl]').onclick = () => saveBlob(url, name);
+      done.querySelector('[data-d=new]').onclick = () => { if (e.aircraft.isNew && e.aircraft.save) aircraftCache = null; openMaint(f, box.parentElement); };
+      if (!r) done.querySelector('[data-d=retry]').onclick = () => { done.hidden = true; box.querySelector('.fill-actions').hidden = false; submitMaint(f, box, list, btn); };
+      if (r) box.querySelectorAll('input, textarea, select, [data-sign], [data-x]').forEach(i => i.disabled = true);
+      if (e.aircraft.isNew && e.aircraft.save) aircraftCache = null;
+      done.scrollIntoView({behavior: 'smooth', block: 'center'});
+    } catch (x) {
+      alert('Sorry, the record could not be created. Please try again.');
+    } finally { btn.disabled = false; btn.textContent = label; }
+  }
+
+  // ----- Print maintenance history (printable report in a new tab)
+  async function openHistory(f, card) {
+    const app = f.app, box = panel(card, 'm-history');
+    box.innerHTML = '<h4>Print maintenance history</h4><p class="note">Loading aircraft…</p>';
+    let list; try { list = await getAircraft(app, true); } catch (x) { box.innerHTML = `<p class="err-msg">Could not load the aircraft list (${esc(x.message)}).</p>`; return; }
+    const d = new Date(), yearAgo = new Date(d.getFullYear() - 1, d.getMonth(), d.getDate() + 1);
+    const iso = x => new Date(x - x.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    box.innerHTML = `<h4>Print maintenance history</h4>
+      <div class="grid2">
+        <div class="wide"><label>Aircraft</label><select data-h="ac">${list.map(a => `<option value="${esc(a.id)}">${esc(acLabel(a))}</option>`).join('')}<option value="OTHER">Other aircraft (not on the list)</option></select></div>
+        <div><label>From</label><input type="date" data-h="from" value="${iso(yearAgo)}"></div>
+        <div><label>To</label><input type="date" data-h="to" value="${todayIso()}"></div>
+      </div>
+      <div class="fill-actions"><button class="btn btn-primary" data-x="go">Create printable report</button><button class="btn btn-ghost" data-x="close">Close</button></div>
+      <p class="note">Opens a report with every inspection, repair, and battery check for that aircraft. Use your browser's Print (or Save as PDF) to hand it to the FAA.</p>`;
+    box.querySelector('[data-x=close]').onclick = () => box.remove();
+    box.querySelector('[data-x=go]').onclick = async ev => {
+      const tab = window.open('', '_blank'), b = ev.currentTarget; b.disabled = true; b.textContent = 'Building report…';
+      const h = k => box.querySelector(`[data-h=${k}]`).value;
+      try {
+        const r = await api(app, 'maint.history', {aircraftId: h('ac'), from: h('from'), to: h('to')});
+        const a = list.find(x => x.id === h('ac')) || {};
+        let logo = ''; try { logo = 'data:image/png;base64,' + toB64(await fetchBytes('logo.png')); } catch (x) {}
+        const html = historyHtml(r, a, h('from'), h('to'), logo);
+        if (tab) { tab.document.open(); tab.document.write(html); tab.document.close(); }
+        else { const u = URL.createObjectURL(new Blob([html], {type: 'text/html'})); location.href = u; }
+      } catch (x) { if (tab) tab.close(); alert('Could not load the history (' + x.message + ').'); }
+      finally { b.disabled = false; b.textContent = 'Create printable report'; }
+    };
+  }
+
+  function historyHtml(r, a, from, to, logoData) {
+    const ac = r.aircraft || {};
+    const name = [ac['Nickname'] || a.nickname, ac['Make / model'] || a.model].filter(Boolean).join(' – ') || 'Other aircraft';
+    const logo = logoData || new URL('logo.png', location.href).href;
+    const entries = (r.entries || []).slice().sort((x, y) => new Date(x['Entry date']) - new Date(y['Entry date']));
+    const bats = (r.batteries || []).slice().sort((x, y) => new Date(x['Entry date']) - new Date(y['Entry date']));
+    const cell = v => esc(v == null || v === '' ? '–' : v);
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Maintenance history – ${esc(name)}</title>
+<style>
+  @page{size:letter landscape;margin:0.45in}
+  body{font:10px/1.4 Helvetica,Arial,sans-serif;color:#111;margin:0;padding:20px}
+  header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0b1f33;padding-bottom:10px;margin-bottom:12px}
+  h1{font-size:20px;margin:0;color:#0b1f33} .sub{color:#c8102e;font-weight:700;font-size:10px;margin-top:2px} .form{color:#5b6b7a;font-size:9px}
+  header img{width:62px;height:62px}
+  .info{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid #9aa7b3;margin-bottom:14px}
+  .info div{padding:5px 7px;border-right:1px solid #9aa7b3} .info div:last-child{border-right:0}
+  .info b{display:block;font-size:7.5px;color:#0b1f33;text-transform:uppercase;letter-spacing:.04em}
+  h2{background:#0b1f33;color:#fff;font-size:10px;padding:4px 8px;margin:16px 0 0;letter-spacing:.05em}
+  table{width:100%;border-collapse:collapse;font-size:9px}
+  th{background:#e9eef3;color:#0b1f33;text-align:left;padding:4px 5px;font-size:7.5px;text-transform:uppercase;border:1px solid #c3ccd5}
+  td{padding:4px 5px;border:1px solid #c3ccd5;vertical-align:top}
+  tr{page-break-inside:avoid} .g{color:#c8102e;font-weight:700} .ok{color:#1a7f3c;font-weight:700}
+  .empty{padding:10px;color:#5b6b7a;border:1px solid #c3ccd5}
+  footer{margin-top:18px;color:#5b6b7a;font-size:8.5px;display:flex;justify-content:space-between}
+  .bar{position:sticky;top:0;background:#fff;padding:8px 0;margin:-20px 0 10px} .bar button{font:600 13px Helvetica;padding:8px 16px;border-radius:20px;border:0;background:#c8102e;color:#fff;cursor:pointer}
+  @media print{.bar{display:none} body{padding:0}}
+</style></head><body>
+<div class="bar"><button onclick="print()">Print / Save as PDF</button></div>
+<header><div><h1>MAINTENANCE HISTORY</h1><div class="sub">OVERHEAD UAS</div><div class="form">OVH-204 Maintenance &amp; Repair Log  ·  Generated ${esc(nowStamp())}</div></div><img src="${logo}" alt=""></header>
+<div class="info"><div><b>Aircraft</b>${esc(name)}</div><div><b>Aircraft ID</b>${cell(ac['Aircraft ID'] || a.id)}</div><div><b>Serial #</b>${cell(ac['Serial #'] || a.serial)}</div>
+<div><b>FAA registration #</b>${cell(ac['FAA registration #'] || a.reg)}</div><div><b>Period</b>${esc(usDate(from) || 'start')} – ${esc(usDate(to) || 'today')}</div></div>
+<h2>INSPECTIONS &amp; REPAIRS (${entries.length})</h2>
+${entries.length ? `<table><tr><th>Date</th><th>Entry type</th><th>Pilot / tech</th><th>Result</th><th>Failed items</th><th>Flight hrs</th><th>Firmware</th><th>Work performed / parts</th><th>Notes</th><th>Batteries</th><th>Document ID</th></tr>
+${entries.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Entry type'])}</td><td>${cell(x['Pilot'])}</td><td class="${x['Result'] === 'GROUNDED' ? 'g' : 'ok'}">${cell(x['Result'])}</td><td>${cell(x['Failed items'])}</td><td>${cell(x['Total flight time (hrs)'])}</td><td>${cell(x['Firmware'])}</td><td>${cell(x['Work performed / parts replaced'])}</td><td>${cell(x['Notes'])}</td><td>${cell(x['Batteries checked'])}</td><td>${cell(x['Document ID'])}</td></tr>`).join('')}</table>` : '<div class="empty">No entries in this period.</div>'}
+<h2>BATTERY CHECKS (${bats.length})</h2>
+${bats.length ? `<table><tr><th>Date</th><th>Battery ID</th><th>Cycles</th><th>Health %</th><th>Condition</th><th>Notes</th><th>Pilot / tech</th><th>Document ID</th></tr>
+${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID'])}</td><td>${cell(x['Cycle count'])}</td><td>${cell(x['Health %'])}</td><td class="${/retire/i.test(x['Condition']) ? 'g' : ''}">${cell(x['Condition'])}</td><td>${cell(x['Notes'])}</td><td>${cell(x['Pilot'])}</td><td>${cell(x['Document ID'])}</td></tr>`).join('')}</table>` : '<div class="empty">No battery checks in this period.</div>'}
+<footer><span>Overhead UAS  ·  www.overheaduas.com  ·  (760) 527-3267  ·  overheaduas@gmail.com</span><span>Signed records for each entry are kept in Google Drive by Document ID.</span></footer>
+</body></html>`;
+  }
+
 
   $('unlockForm').addEventListener('submit', async e => {
     e.preventDefault();
