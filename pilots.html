@@ -254,7 +254,12 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 3;
+  const PAGE_VERSION = 4; // bump when the page changes; also update version.json
+  // If this page is an old cached copy, load the newest one automatically.
+  fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
+    const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
+    if (+want > PAGE_VERSION && have !== want) location.replace('pilots.html?v=' + want);
+  }).catch(() => {});
   if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) document.querySelectorAll('.a2hs').forEach(e => e.hidden = true);
   (() => {
     const btn = document.getElementById('themeBtn');
