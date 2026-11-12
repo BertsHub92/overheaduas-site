@@ -511,7 +511,8 @@
     const msg = (t, bad) => { $('plMsg').innerHTML = t; $('plMsg').className = 'plan-msg ' + (bad ? 'bad' : 'good'); };
     function offer(bytes, name, label) {
       const file = new File([bytes], name, {type: 'application/pdf'}), url = URL.createObjectURL(file);
-      msg(`<b>&#10003; ${label} ready.</b> <a href="${url}" target="_blank" rel="noopener">Open / print</a> · <a href="#" data-dl>Save to this device</a> · <a href="#" data-share>Share</a> <span class="note" data-drive></span>`);
+      msg(`<b>&#10003; ${label} ready.</b> <a href="#" data-open>Open / print</a> · <a href="#" data-dl>Save to this device</a> · <a href="#" data-share>Share</a> <span class="note" data-drive></span>`);
+      $('plMsg').querySelector('[data-open]').onclick = ev => { ev.preventDefault(); X.showFile ? X.showFile(bytes, name, 'application/pdf') : window.open(url, '_blank'); };
       $('plMsg').querySelector('[data-dl]').onclick = ev => { ev.preventDefault(); X.saveBlob(url, name); };
       $('plMsg').querySelector('[data-share]').onclick = async ev => { ev.preventDefault(); const r = await X.shareFile(file, 'Overhead UAS ' + label.toLowerCase()); if (r === false) X.saveBlob(url, name); };
       const am = X.activeMission && X.activeMission();
