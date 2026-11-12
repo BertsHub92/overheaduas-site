@@ -281,7 +281,7 @@
   function render() {
     const list = $('formList');
     list.innerHTML = '';
-    const groups = {'1': ['Flight operations', 'print & laminate'], '2': ['Mission records', 'fill out per flight'], '3': ['Client & business', '']};
+    const groups = {'1': ['Flight operations', 'print & laminate'], '2': ['Mission records', 'fill out per flight'], '3': ['Client & business', ''], '4': ['Pilots & personnel', 'company records']};
     let lastG = '';
     for (const f of manifest.forms) {
       const g = (/OVH-(\d)/.exec(f.title) || [])[1] || '';
