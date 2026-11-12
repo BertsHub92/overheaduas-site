@@ -87,7 +87,7 @@ def main(cfg_path):
     os.makedirs(OUT, exist_ok=True)
     for name in os.listdir(OUT):
         os.remove(os.path.join(OUT, name))
-    manifest = {'updated': datetime.date.today().isoformat(), 'forms': []}
+    manifest = {'updated': datetime.date.today().isoformat(), 'page': cfg.get('page', 0), 'forms': []}
     for f in forms:
         fid = 'f-' + secrets.token_hex(8)
         open(f'{OUT}/{fid}.bin', 'wb').write(seal(K, f['data'], fid.encode()))

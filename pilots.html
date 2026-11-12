@@ -183,6 +183,7 @@
 
 <script>
 (() => {
+  const PAGE_VERSION = 2; // bump when the page needs to match a newer portal build
   const enc = new TextEncoder();
   const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
   const norm = c => c.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1024,6 +1025,11 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
       K = await unlock(code);
       if (!K) { msg.className = 'msg err'; msg.textContent = "That code didn't work. Check for typos, or contact Overhead UAS for a new code."; return; }
       manifest = JSON.parse(new TextDecoder().decode(await open(K, await fetchBytes('portal/manifest.bin'), 'manifest')));
+      if ((manifest.page || 0) > PAGE_VERSION) {
+        msg.className = 'msg err';
+        msg.innerHTML = 'The portal was updated. <a href="pilots.html?v=' + Date.now() + '"><b>Tap here to load the new version</b></a>, then enter your code again.';
+        K = null; manifest = null; return;
+      }
       render();
       $('code').value = '';
       $('lock').hidden = true; $('files').hidden = false;
