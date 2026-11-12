@@ -11,12 +11,18 @@
  * "Overhead UAS Maintenance Log"): aircraft list, log entries, battery
  * checks, and history for printing. Only failed / grounded entries email.
  *
+ * Also keeps Pilot Records (Google Sheet "Overhead UAS Pilot Records" and
+ * Drive folder Overhead UAS Records/Pilots/<name>): each pilot's profile,
+ * FAA certificate, drone registrations, and other certificates. Pilots see
+ * only their own folder; admins see all.
+ *
  * Setup: see the instructions Claude provided. Deploy as a Web app,
  * "Execute as: Me", "Who has access: Anyone".
  */
 var TOKEN = 'PASTE_TOKEN_HERE';          // must match the Pilot Portal
 var OFFICE_EMAIL = 'overheaduas@gmail.com';
 var ROOT_FOLDER = 'Overhead UAS Records';
+var PILOT_KEY = 'PASTE_PILOT_KEY_HERE';  // must match the Pilot Portal build
 
 function doPost(e) {
   try {
@@ -95,6 +101,7 @@ function authorize() {
   DriveApp.getRootFolder();
   GmailApp.getAliases();
   maintBook();
+  pilotBook();
 }
 
 // ===================== OVH-204 Maintenance & Repair Log =====================
@@ -106,25 +113,26 @@ var TABS = {
   'Battery Checks': ['Logged', 'Entry date', 'Aircraft ID', 'Aircraft', 'Battery ID', 'Cycle count', 'Health %', 'Condition', 'Notes', 'Pilot', 'Document ID']
 };
 
-function maintBook() {
-  var props = PropertiesService.getScriptProperties(), id = props.getProperty('MAINT_BOOK_ID'), ss = null;
+function book(prop, title, tabs, sub) {
+  var props = PropertiesService.getScriptProperties(), id = props.getProperty(prop), ss = null;
   if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { ss = null; } }
   if (!ss) {
-    ss = SpreadsheetApp.create(MAINT_BOOK);
-    props.setProperty('MAINT_BOOK_ID', ss.getId());
-    try { DriveApp.getFileById(ss.getId()).moveTo(folder(folder(null, ROOT_FOLDER), 'Maintenance')); } catch (e) {}
+    ss = SpreadsheetApp.create(title);
+    props.setProperty(prop, ss.getId());
+    try { DriveApp.getFileById(ss.getId()).moveTo(folder(folder(null, ROOT_FOLDER), sub)); } catch (e) {}
   }
-  Object.keys(TABS).forEach(function (name) {
+  Object.keys(tabs).forEach(function (name) {
     var sh = ss.getSheetByName(name);
     if (!sh) {
       sh = ss.insertSheet(name);
-      sh.appendRow(TABS[name]); sh.setFrozenRows(1);
-      sh.getRange(1, 1, 1, TABS[name].length).setFontWeight('bold').setBackground('#0b1f33').setFontColor('#ffffff');
+      sh.appendRow(tabs[name]); sh.setFrozenRows(1);
+      sh.getRange(1, 1, 1, tabs[name].length).setFontWeight('bold').setBackground('#0b1f33').setFontColor('#ffffff');
     }
   });
   var def = ss.getSheetByName('Sheet1'); if (def && ss.getSheets().length > 1) ss.deleteSheet(def);
   return ss;
 }
+function maintBook() { return book('MAINT_BOOK_ID', MAINT_BOOK, TABS, 'Maintenance'); }
 
 function rows(sh) {
   var v = sh.getDataRange().getValues(), head = v.shift();
@@ -149,6 +157,7 @@ function addAircraft(ss, a, by) {
 }
 
 function handleAction(d) {
+  if (/^(me|pilot|pilots|doc)\./.test(d.action)) return pilotAction(d);
   var ss = maintBook(), lock = LockService.getScriptLock();
   if (d.action === 'aircraft.list') return {ok: true, aircraft: aircraftList(ss)};
   if (d.action === 'aircraft.add') {
@@ -198,6 +207,118 @@ function handleAction(d) {
     };
     var all = rows(ss.getSheetByName('Aircraft')).filter(function (a) { return String(a['Aircraft ID']) === id; })[0] || null;
     return {ok: true, aircraft: all, entries: rows(ss.getSheetByName('Log Entries')).filter(inRange), batteries: rows(ss.getSheetByName('Battery Checks')).filter(inRange)};
+  }
+  return {ok: false, error: 'unknown action'};
+}
+
+
+// ===================== Pilot Records =====================
+var PILOT_BOOK = 'Overhead UAS Pilot Records';
+var PTABS = {
+  Pilots: ['Pilot ID', 'Name', 'Phone', 'Email', 'Part 107 cert #', 'Original issue date', 'Last recurrent / test date', 'Recurrent due',
+           'Other certs & ratings', 'Role', 'Status', 'Updated', 'Updated by'],
+  Documents: ['Doc ID', 'Pilot ID', 'Type', 'Title', 'Aircraft', 'Registration #', 'Expires', 'File name', 'Uploaded', 'Uploaded by', 'Status']
+};
+var PFIELDS = ['name', 'phone', 'email', 'cert', 'issued', 'recurrent', 'due', 'other'];
+
+function pilotBook() { return book('PILOT_BOOK_ID', PILOT_BOOK, PTABS, 'Pilots'); }
+
+function findRow(sh, col, val) {
+  var v = sh.getDataRange().getValues(), head = v[0], c = head.indexOf(col);
+  for (var i = 1; i < v.length; i++) if (String(v[i][c]) === String(val)) {
+    var o = {}; head.forEach(function (h, k) { o[h] = v[i][k] instanceof Date ? Utilities.formatDate(v[i][k], 'America/Los_Angeles', 'MM/dd/yyyy') : v[i][k]; });
+    return {i: i + 1, obj: o};
+  }
+  return null;
+}
+
+function pilotAuth(d, ss) {
+  var p = d.pilot || {};
+  if (!p.id || !p.sec || PILOT_KEY.indexOf('PASTE') === 0) throw new Error('not signed in as a pilot');
+  var sig = Utilities.base64Encode(Utilities.computeHmacSha256Signature(String(p.id) + '|' + String(p.role), PILOT_KEY, Utilities.Charset.UTF_8));
+  if (sig !== p.sec) throw new Error('pilot not recognized');
+  var me = {id: String(p.id), name: String(p.name || p.id), admin: p.role === 'admin'};
+  var r = findRow(ss.getSheetByName('Pilots'), 'Pilot ID', me.id);
+  if (r && r.obj['Status'] === 'Inactive' && !me.admin) throw new Error('this pilot is inactive');
+  return me;
+}
+
+function profileOf(o) {
+  return {id: o['Pilot ID'], name: o['Name'], phone: o['Phone'], email: o['Email'], cert: o['Part 107 cert #'], issued: o['Original issue date'],
+          recurrent: o['Last recurrent / test date'], due: o['Recurrent due'], other: o['Other certs & ratings'], role: o['Role'], status: o['Status'], updated: o['Updated']};
+}
+
+function ensurePilot(ss, id, name, role) {
+  var sh = ss.getSheetByName('Pilots'), r = findRow(sh, 'Pilot ID', id);
+  if (!r) { sh.appendRow([id, clean(name, 80), '', '', '', '', '', '', '', role, 'Active', new Date(), 'portal']); r = findRow(sh, 'Pilot ID', id); }
+  return r;
+}
+
+function docsOf(ss, id) {
+  return rows(ss.getSheetByName('Documents')).filter(function (x) { return String(x['Pilot ID']) === id && x['Status'] !== 'Deleted'; }).map(function (x) {
+    return {id: x['Doc ID'], type: x['Type'], title: x['Title'], aircraft: x['Aircraft'], reg: x['Registration #'], expires: x['Expires'], file: x['File name'], uploaded: x['Uploaded']};
+  });
+}
+
+function pilotFolder(name, id) { return folder(folder(folder(null, ROOT_FOLDER), 'Pilots'), String(name || id).replace(/[\/\\]+/g, '-')); }
+
+function pilotAction(d) {
+  var ss = pilotBook(), me = pilotAuth(d, ss), lock = LockService.getScriptLock();
+  var target = String(d.target || me.id);
+  if (target !== me.id && !me.admin) return {ok: false, error: 'not allowed'};
+  var P = ss.getSheetByName('Pilots'), D = ss.getSheetByName('Documents');
+
+  if (d.action === 'me.get' || d.action === 'pilot.get') {
+    var r = target === me.id ? ensurePilot(ss, me.id, me.name, me.admin ? 'admin' : 'pilot') : findRow(P, 'Pilot ID', target);
+    if (!r) return {ok: false, error: 'pilot not found'};
+    return {ok: true, profile: profileOf(r.obj), docs: docsOf(ss, target), admin: me.admin};
+  }
+  if (d.action === 'pilot.save') {
+    lock.waitLock(20000);
+    try {
+      var r2 = target === me.id ? ensurePilot(ss, me.id, me.name, me.admin ? 'admin' : 'pilot') : findRow(P, 'Pilot ID', target);
+      if (!r2) return {ok: false, error: 'pilot not found'};
+      var f = d.profile || {}, o = r2.obj;
+      var vals = [target, clean(f.name || o['Name'], 80), clean(f.phone, 40), clean(f.email, 120), clean(f.cert, 40), clean(f.issued, 20), clean(f.recurrent, 20),
+                  clean(f.due, 20), clean(f.other, 500), o['Role'] || 'pilot', o['Status'] || 'Active', new Date(), clean(me.name, 80)];
+      P.getRange(r2.i, 1, 1, vals.length).setValues([vals]);
+      return {ok: true, profile: profileOf(findRow(P, 'Pilot ID', target).obj)};
+    } finally { lock.releaseLock(); }
+  }
+  if (d.action === 'doc.upload') {
+    var bytes = Utilities.base64Decode(d.data || '');
+    if (!bytes.length || bytes.length > 10 * 1024 * 1024) return {ok: false, error: 'file missing or larger than 10 MB'};
+    var mime = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/.test(d.mime) ? d.mime : 'application/octet-stream';
+    var pr = findRow(P, 'Pilot ID', target) || ensurePilot(ss, target, target, 'pilot');
+    var fname = String(d.filename || 'document').replace(/[^\w.\- ]+/g, '_').slice(0, 120);
+    var file = pilotFolder(pr.obj['Name'], target).createFile(Utilities.newBlob(bytes, mime, fname));
+    D.appendRow([file.getId(), target, clean(d.type, 60), clean(d.title, 120), clean(d.aircraft, 120), clean(d.reg, 40), clean(d.expires, 20), fname, new Date(), clean(me.name, 80), 'Active']);
+    return {ok: true, docs: docsOf(ss, target)};
+  }
+  if (d.action === 'doc.get' || d.action === 'doc.delete') {
+    var dr = findRow(D, 'Doc ID', d.docId);
+    if (!dr || dr.obj['Status'] === 'Deleted') return {ok: false, error: 'document not found'};
+    if (String(dr.obj['Pilot ID']) !== me.id && !me.admin) return {ok: false, error: 'not allowed'};
+    var fl = DriveApp.getFileById(String(d.docId));
+    if (d.action === 'doc.get') { var bl = fl.getBlob(); return {ok: true, mime: bl.getContentType(), name: dr.obj['File name'], data: Utilities.base64Encode(bl.getBytes())}; }
+    D.getRange(dr.i, PTABS.Documents.indexOf('Status') + 1).setValue('Deleted');
+    try { fl.setTrashed(true); } catch (e) {}
+    return {ok: true, docs: docsOf(ss, String(dr.obj['Pilot ID']))};
+  }
+  if (d.action === 'pilots.list') {
+    if (!me.admin) return {ok: false, error: 'admins only'};
+    var docs = rows(D).filter(function (x) { return x['Status'] !== 'Deleted'; });
+    return {ok: true, pilots: rows(P).map(function (o) {
+      var p = profileOf(o), mine = docs.filter(function (x) { return String(x['Pilot ID']) === String(p.id); });
+      p.docCount = mine.length; p.hasCert = mine.some(function (x) { return x['Type'] === 'Part 107 certificate'; });
+      return p;
+    })};
+  }
+  if (d.action === 'pilot.status') {
+    if (!me.admin) return {ok: false, error: 'admins only'};
+    var sr = findRow(P, 'Pilot ID', target); if (!sr) return {ok: false, error: 'pilot not found'};
+    P.getRange(sr.i, PTABS.Pilots.indexOf('Status') + 1).setValue(d.status === 'Inactive' ? 'Inactive' : 'Active');
+    return {ok: true};
   }
   return {ok: false, error: 'unknown action'};
 }

@@ -82,6 +82,38 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .who-name{font:600 18px "Space Grotesk",sans-serif;color:var(--text)}
+  .who-check{color:var(--ok)}
+  .who-cert{font-size:14px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .who-cert a{color:var(--blue);font-weight:600}
+  .badge{display:inline-block;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap}
+  .badge.green{background:rgba(27,122,64,.12);color:var(--ok)} .badge.amber{background:rgba(199,119,0,.14);color:#a86400} .badge.red{background:rgba(196,35,48,.12);color:var(--err)}
+  .badge.grey{background:transparent;border:1px solid var(--line2);color:var(--muted);font-weight:500}
+  .muted{color:var(--muted2)}
+  .pcard{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px;margin-top:12px}
+  .pcard h4{font:600 13px "Space Grotesk",sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--blue);margin:14px 0 8px}
+  .pcard h4:first-child{margin-top:0}
+  .pcard-top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;padding-bottom:6px}
+  .pcard input[type=text],.pcard input[type=tel],.pcard input[type=email],.pcard input[type=date]{width:100%;flex:none;padding:10px 12px;font-size:15px;background:var(--field)}
+  .pcard label{margin-bottom:5px}
+  .pcard .note{font-size:13px;color:var(--muted2);margin-top:6px}
+  .pcard .warn,.warn-inline{color:#a86400;font-weight:600}
+  .pcard .warn{font-size:14px;margin:6px 0}
+  .admin-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;margin:4px 0 8px;border:1px dashed var(--line2);border-radius:10px;font-size:14px}
+  .btn.sm{padding:8px 14px;font-size:13.5px}
+  .save-msg,.up-msg{font-size:13.5px;align-self:center} .save-msg.bad,.up-msg.bad{color:var(--err)} .save-msg,.up-msg.good{color:var(--ok)}
+  .doclist{display:grid;gap:8px;margin:8px 0 10px}
+  .doc-item{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
+  .doc-item .note{margin-top:2px}
+  .doc-btns{display:flex;gap:6px}
+  .uploader{padding:12px;border:1px dashed var(--line2);border-radius:10px;margin:8px 0}
+  .filepick{display:block;margin-top:10px;cursor:pointer}
+  .filepick input{position:absolute;opacity:0;width:1px;height:1px}
+  .filepick span{display:block;text-align:center;padding:14px;border:1.5px dashed var(--blue);border-radius:10px;color:var(--blue);font-weight:600;font-size:14.5px}
+  .plist{display:grid;gap:10px;margin-top:10px}
+  .prow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);text-decoration:none;color:var(--text)}
+  .prow:hover{border-color:var(--blue)} .prow.inactive{opacity:.6}
+  .prow-main{flex:1 1 220px} .prow-main .note{font-size:13px;color:var(--muted2);margin-top:2px}
   .tiles{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px}
   @media (min-width:640px){.tiles{grid-template-columns:1fr 1fr}}
   .tile{display:flex;align-items:center;gap:14px;padding:18px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);text-decoration:none;color:var(--text);transition:.15s}
@@ -256,7 +288,7 @@
 
   <section class="card" id="files" hidden>
     <div class="top">
-      <span class="welcome">&#10003; Signed in</span>
+      <div class="who"><div class="who-name" id="whoName">&#10003; Signed in</div><div class="who-cert" id="whoCert"></div></div>
       <button class="btn btn-ghost" id="lockBtn" type="button">Sign out</button>
     </div>
     <div id="home" class="tiles">
@@ -265,12 +297,24 @@
         <div class="tile-body"><h3>Forms</h3><p>Checklists, mission records, client and pilot forms</p><span class="tile-meta" id="formCount"></span></div>
         <span class="tile-go">&rsaquo;</span>
       </a>
+      <a class="tile" href="#me" id="meTile" hidden>
+        <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></div>
+        <div class="tile-body"><h3>My Pilot Folder</h3><p>Your FAA certificate, drone registrations, and other certificates</p><span class="tile-meta" id="meMeta"></span></div>
+        <span class="tile-go">&rsaquo;</span>
+      </a>
+      <a class="tile" href="#pilots" id="adminTile" hidden>
+        <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5"/><circle cx="17" cy="9" r="2.8"/><path d="M16 14.6c2.8-.3 4.8 1.2 5.5 4.4"/></svg></div>
+        <div class="tile-body"><h3>Current Pilots</h3><p>Every pilot's folder, certificates, and recurrent dates</p><span class="tile-meta">Admins only</span></div>
+        <span class="tile-go">&rsaquo;</span>
+      </a>
       <a class="tile" href="tel:+17605273267">
         <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2"/></svg></div>
         <div class="tile-body"><h3>Contact Overhead UAS</h3><p>Call or text (760) 527-3267</p></div>
         <span class="tile-go">&rsaquo;</span>
       </a>
     </div>
+    <div id="folderView" hidden></div>
+    <div id="pilotsView" hidden></div>
     <div id="formsView" hidden>
       <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Forms</h2></div>
       <div class="forms" id="formList"></div>
@@ -283,7 +327,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 5; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 6; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -300,7 +344,7 @@
   const enc = new TextEncoder();
   const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
   const norm = c => c.toLowerCase().replace(/[^a-z0-9]/g, '');
-  let K = null, manifest = null;
+  let K = null, manifest = null, ME = null, PROFILE = null, MYDOCS = [];
   const $ = id => document.getElementById(id);
 
   async function fetchBytes(path) {
@@ -321,9 +365,11 @@
       base, {name: 'AES-GCM', length: 256}, false, ['decrypt']);
     for (const s of keys.slots) {
       try {
-        const raw = await crypto.subtle.decrypt(
-          {name: 'AES-GCM', iv: unb64(s.i), additionalData: enc.encode('slot')}, kek, unb64(s.k));
-        return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+        const raw = new Uint8Array(await crypto.subtle.decrypt(
+          {name: 'AES-GCM', iv: unb64(s.i), additionalData: enc.encode('slot')}, kek, unb64(s.k)));
+        let kraw = raw; ME = null;
+        if (raw.length !== 32) { const j = JSON.parse(new TextDecoder().decode(raw)); kraw = unb64(j.k); ME = {id: j.id, name: j.name, role: j.role, sec: j.sec}; }
+        return crypto.subtle.importKey('raw', kraw, 'AES-GCM', false, ['decrypt']);
       } catch (e) { /* not this slot */ }
     }
     return null;
@@ -489,6 +535,11 @@
     let any = false;
     (F.remember || []).forEach(n => { const v = store.get(n); if (v && field(n)) { field(n).value = v; any = true; } });
     q('#fx_remember').checked = any;
+    if (PROFILE) {
+      const nm = PROFILE.name || (ME && ME.name) || '';
+      const AF = {pilot_name: nm, pilot: nm, faa_cert: PROFILE.cert, prepared_by: nm, rep: nm};
+      for (const [k, v] of Object.entries(AF)) { const el = field(k); if (el && v && !el.value) el.value = v; }
+    }
     (F.today || []).forEach(n => { if (field(n) && !field(n).value) field(n).value = todayIso(); });
     (F.copy || []).forEach(([from, to]) => {
       const a = field(from), b = field(to);
@@ -887,7 +938,7 @@
       <h4>Aircraft</h4>
       <div class="grid2">
         <div class="wide"><label>Aircraft <span class="req">*</span></label><select data-k="aircraft">
-          <option value="">Select aircraft…</option>${list.map((a, i) => `<option value="${i}">${esc(acLabel(a))}</option>`).join('')}<option value="other">Other aircraft…</option></select></div>
+          <option value="">Select aircraft…</option>${list.map((a, i) => `<option value="${i}">${esc(acLabel(a))}</option>`).join('')}${myDrones().length ? `<optgroup label="My registered drones">${myDrones().map((d, i) => `<option value="my:${i}">${esc(d.aircraft || d.title || 'Drone')}${d.reg ? '  (' + esc(d.reg) + ')' : ''}</option>`).join('')}</optgroup>` : ''}<option value="other">Other aircraft…</option></select></div>
       </div>
       <div class="grid2 other-ac" hidden>
         <div><label>Nickname</label><input type="text" data-o="nickname"></div>
@@ -935,6 +986,7 @@
     const q = s => box.querySelector(s), qa = s => [...box.querySelectorAll(s)];
     q('[data-k=date]').value = todayIso();
     const pn = store.get('pilot_name'); if (pn) { q('[data-k=pilot]').value = pn; q('[data-k=remember]').checked = true; }
+    if (PROFILE && PROFILE.name && !q('[data-k=pilot]').value) q('[data-k=pilot]').value = PROFILE.name;
     const etype = () => q('input[name=etype]:checked').value;
     const sync = () => {
       const t = etype();
@@ -945,7 +997,11 @@
       if (failed) q('input[name=status][value=GROUNDED]').checked = true;
       q('.status-note').hidden = !failed;
     };
-    q('[data-k=aircraft]').onchange = e => { q('.other-ac').hidden = e.target.value !== 'other'; e.target.classList.remove('invalid'); };
+    q('[data-k=aircraft]').onchange = e => {
+      const v = e.target.value, mine = v.startsWith('my:');
+      q('.other-ac').hidden = !(v === 'other' || mine); e.target.classList.remove('invalid');
+      if (mine) { const d = myDrones()[+v.slice(3)]; q('[data-o=model]').value = d.aircraft || d.title || ''; q('[data-o=reg]').value = d.reg || ''; q('[data-o=nickname]').value = ''; q('[data-o=save]').checked = true; }
+    };
     qa('input[name=etype]').forEach(r => r.onchange = sync);
     qa('.ci').forEach(ci => ci.addEventListener('change', () => {
       const fail = ci.querySelector('input[value=Fail]').checked;
@@ -982,7 +1038,7 @@
     const q = s => box.querySelector(s), qa = s => [...box.querySelectorAll(s)], v = k => (q(`[data-k=${k}]`)?.value || '').trim();
     const sel = q('[data-k=aircraft]').value;
     let aircraft;
-    if (sel === 'other') {
+    if (sel === 'other' || sel.startsWith('my:')) {
       const o = k => q(`[data-o=${k}]`).value.trim();
       aircraft = {isNew: true, save: q('[data-o=save]').checked, nickname: o('nickname'), model: o('model'), serial: o('serial'), reg: o('reg')};
     } else if (sel !== '') aircraft = Object.assign({}, list[+sel]);
@@ -1210,6 +1266,170 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
   }
 
 
+
+  // ---------- Pilot records: profile, documents, current pilots ----------
+  async function papi(action, body = {}) {
+    const S = manifest.submit;
+    const res = await fetch(S.url, {method: 'POST', body: JSON.stringify(Object.assign({token: S.token, action, pilot: ME}, body))});
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.error || 'request failed');
+    return j;
+  }
+  const myDrones = () => MYDOCS.filter(d => d.type === 'Drone registration');
+  const toIso = v => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v || ''); return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : (v || ''); };
+  function dueInfo(p) {
+    const base = toIso((p && (p.recurrent || p.issued)) || '');
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(base); if (!m) return null;
+    const due = new Date(+m[1], +m[2] - 1 + 25, 0);   // end of the 24th calendar month
+    const days = Math.floor((due - new Date()) / 864e5);
+    return {due, days, cls: days < 0 ? 'red' : days < 90 ? 'amber' : 'green',
+            label: due.toLocaleString('en-US', {month: 'short', year: 'numeric'}),
+            iso: `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`};
+  }
+  const dueBadge = p => { const d = dueInfo(p); if (!d) return '<span class="badge grey">Recurrent date not set</span>';
+    return `<span class="badge ${d.cls}">${d.days < 0 ? 'Recurrent OVERDUE since ' : 'Recurrent due '}${esc(d.label)}${d.days >= 0 && d.days < 90 ? ' · ' + d.days + ' days' : ''}</span>`; };
+
+  function updateWho() {
+    const nm = (PROFILE && PROFILE.name) || (ME && ME.name) || '';
+    $('whoName').innerHTML = nm ? `<span class="who-check">&#10003;</span> ${esc(nm)}${ME && ME.role === 'admin' ? ' <span class="badge grey">Admin</span>' : ''}` : '&#10003; Signed in';
+    if (!ME || !manifest.submit) { $('whoCert').innerHTML = ''; return; }
+    if (!PROFILE) { $('whoCert').innerHTML = '<span class="muted">Loading your pilot info…</span>'; return; }
+    $('whoCert').innerHTML = PROFILE.cert ? `Part 107 #${esc(PROFILE.cert)} &nbsp;${dueBadge(PROFILE)}` : `<a href="#me">Add your FAA Part 107 info &rsaquo;</a>`;
+    const missing = !MYDOCS.some(d => d.type === 'Part 107 certificate');
+    $('meMeta').textContent = missing ? 'Add a copy of your Part 107 certificate' : MYDOCS.length + ' document' + (MYDOCS.length === 1 ? '' : 's');
+  }
+  async function loadMe() {
+    updateWho();
+    if (!ME || !manifest.submit) return;
+    try { const r = await papi('me.get'); PROFILE = r.profile; MYDOCS = r.docs || []; }
+    catch (e) { $('whoCert').innerHTML = `<span class="muted">Couldn't load your pilot info (${esc(e.message)})</span>`; return; }
+    updateWho();
+  }
+
+  async function prepFile(file) {
+    if (/^image\//.test(file.type) || /\.(heic|heif)$/i.test(file.name)) {
+      const url = URL.createObjectURL(file);
+      try {
+        const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
+        const sc = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+        const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * sc); cv.height = Math.round(img.naturalHeight * sc);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        const blob = await new Promise(ok => cv.toBlob(ok, 'image/jpeg', 0.86));
+        return {bytes: new Uint8Array(await blob.arrayBuffer()), mime: 'image/jpeg', name: file.name.replace(/\.[^.]+$/, '') + '.jpg'};
+      } finally { URL.revokeObjectURL(url); }
+    }
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      if (file.size > 10 * 1024 * 1024) throw new Error('PDF is larger than 10 MB');
+      return {bytes: new Uint8Array(await file.arrayBuffer()), mime: 'application/pdf', name: file.name};
+    }
+    throw new Error('Please choose a photo or a PDF');
+  }
+
+  const DOC_GROUPS = [
+    {type: 'Part 107 certificate', title: 'FAA Part 107 certificate', hint: 'Photo or PDF of your current Remote Pilot Certificate (front and back if it has two sides).', one: true},
+    {type: 'Drone registration', title: 'Drone registrations', hint: 'FAA registration certificate for each drone you fly. Registrations are good for 3 years.', reg: true},
+    {type: 'Other certificate', title: 'Other certificates & training', hint: 'Recurrent training certificate, night training, insurance, other ratings.', other: true}];
+
+  async function openFolder(id) {
+    const v = $('folderView'), self = ME && id === ME.id;
+    v.innerHTML = `<div class="view-head"><a href="${self ? '#' : '#pilots'}" class="back-btn">&lsaquo; ${self ? 'Portal' : 'Current Pilots'}</a><h2>${self ? 'My Pilot Folder' : 'Pilot folder'}</h2></div><p class="note">Loading…</p>`;
+    let r;
+    try { r = await papi(self ? 'me.get' : 'pilot.get', {target: id}); }
+    catch (e) { v.querySelector('.note').outerHTML = `<p class="err-msg">Couldn't open this folder (${esc(e.message)}). Check your connection.</p>`; return; }
+    if (self) { PROFILE = r.profile; MYDOCS = r.docs || []; updateWho(); }
+    drawFolder(v, id, self, r.profile, r.docs || []);
+  }
+
+  function drawFolder(v, id, self, P, docs) {
+    const f = (k, label, type = 'text', extra = '') => `<div class="${extra}"><label>${label}</label><input type="${type}" data-p="${k}" value="${esc(type === 'date' ? toIso(P[k]) : (P[k] || ''))}"></div>`;
+    v.innerHTML = `<div class="view-head"><a href="${self ? '#' : '#pilots'}" class="back-btn">&lsaquo; ${self ? 'Portal' : 'Current Pilots'}</a><h2>${self ? 'My Pilot Folder' : esc(P.name || id)}</h2></div>
+      <div class="pcard"><div class="pcard-top"><div><b>${esc(P.name || id)}</b>${P.cert ? ' · Part 107 #' + esc(P.cert) : ''}</div>${dueBadge(P)}</div>
+        ${!self ? `<div class="admin-row"><span>Status: <b>${esc(P.status || 'Active')}</b></span><button class="btn btn-ghost sm" data-x="status">${P.status === 'Inactive' ? 'Mark active' : 'Mark inactive'}</button></div>` : ''}
+        <h4>Pilot info</h4>
+        <div class="grid2">${f('name', 'Full name', 'text', 'wide')}${f('phone', 'Phone', 'tel')}${f('email', 'Email', 'email')}
+          ${f('cert', 'FAA Part 107 certificate #')}${f('issued', 'Original issue date', 'date')}
+          ${f('recurrent', 'Last recurrent training / test date', 'date')}${f('other', 'Other certs & ratings', 'text', 'wide')}</div>
+        <p class="note">Recurrent training is due by the end of the 24th calendar month after your last test or training. It turns yellow 90 days before it's due.</p>
+        <div class="fill-actions"><button class="btn btn-primary" data-x="save">Save pilot info</button><span class="save-msg"></span></div>
+      </div>
+      ${DOC_GROUPS.map(g => {
+        const mine = docs.filter(d => d.type === g.type);
+        return `<div class="pcard" data-g="${g.type}"><h4>${g.title}</h4><p class="note">${g.hint}</p>
+          ${g.one && !mine.length ? '<p class="warn">No copy on file yet.</p>' : ''}
+          <div class="doclist">${mine.map(d => {
+            const exp = toIso(d.expires), expired = exp && new Date(exp) < new Date();
+            return `<div class="doc-item"><div><b>${esc(d.aircraft || d.title || g.title)}</b>
+              <div class="note">${d.reg ? 'Reg # ' + esc(d.reg) + ' · ' : ''}${d.expires ? (expired ? '<span class="badge red">Expired ' + esc(d.expires) + '</span>' : 'Expires ' + esc(d.expires)) + ' · ' : ''}Added ${esc(d.uploaded || '')}</div></div>
+              <div class="doc-btns"><button class="btn btn-ghost sm" data-view="${esc(d.id)}">View</button><button class="btn btn-ghost sm" data-del="${esc(d.id)}">Delete</button></div></div>`; }).join('')}</div>
+          <div class="uploader" hidden>
+            ${g.reg ? `<div class="grid2"><div class="wide"><label>Drone (make / model)</label><input type="text" data-u="aircraft" placeholder="e.g. DJI Mavic 3 Pro"></div>
+              <div><label>FAA registration #</label><input type="text" data-u="reg" placeholder="FA…"></div><div><label>Expires</label><input type="date" data-u="expires"></div></div>` : ''}
+            ${g.other ? `<div class="grid2"><div class="wide"><label>What is it?</label><input type="text" data-u="title" placeholder="e.g. Recurrent training certificate"></div>
+              <div><label>Expires (if any)</label><input type="date" data-u="expires"></div></div>` : ''}
+            <label class="filepick"><input type="file" accept="image/*,application/pdf" data-u="file"><span>Choose photo or PDF</span></label>
+            <div class="fill-actions"><button class="btn btn-primary sm" data-x="upload">Upload</button><button class="btn btn-ghost sm" data-x="cancel">Cancel</button><span class="up-msg"></span></div>
+          </div>
+          <button class="btn btn-ghost sm" data-x="add">+ ${g.one && mine.length ? 'Replace / add page' : 'Add'}</button></div>`; }).join('')}`;
+
+    const msg = (el, t, bad) => { el.textContent = t; el.className = el.className.split(' ')[0] + (bad ? ' bad' : ' good'); };
+    v.querySelector('[data-x=save]').onclick = async e => {
+      const b = e.currentTarget, m = v.querySelector('.save-msg'), val = k => v.querySelector(`[data-p=${k}]`).value.trim();
+      const prof = {name: val('name'), phone: val('phone'), email: val('email'), cert: val('cert'), issued: usDate(val('issued')), recurrent: usDate(val('recurrent')), other: val('other')};
+      const d = dueInfo(prof); prof.due = d ? usDate(d.iso) : '';
+      b.disabled = true; b.textContent = 'Saving…';
+      try { const r = await papi('pilot.save', {target: id, profile: prof}); if (self) { PROFILE = r.profile; updateWho(); } drawFolder(v, id, self, r.profile, docs); v.querySelector('.save-msg').textContent = 'Saved ✓'; }
+      catch (x) { msg(m, 'Could not save (' + x.message + ')', true); b.disabled = false; b.textContent = 'Save pilot info'; }
+    };
+    const st = v.querySelector('[data-x=status]');
+    if (st) st.onclick = async () => { const to = P.status === 'Inactive' ? 'Active' : 'Inactive';
+      if (to === 'Inactive' && !confirm('Mark this pilot inactive? They will no longer be able to use their folder. (Also ask Claude to remove their code.)')) return;
+      try { await papi('pilot.status', {target: id, status: to}); P.status = to; drawFolder(v, id, self, P, docs); } catch (x) { alert('Could not change status (' + x.message + ')'); } };
+    v.querySelectorAll('[data-g]').forEach(card => {
+      const g = DOC_GROUPS.find(x => x.type === card.dataset.g), up = card.querySelector('.uploader'), add = card.querySelector('[data-x=add]');
+      add.onclick = () => { up.hidden = false; add.hidden = true; };
+      card.querySelector('[data-x=cancel]').onclick = () => { up.hidden = true; add.hidden = false; };
+      card.querySelector('[data-u=file]').onchange = e => { card.querySelector('.filepick span').textContent = e.target.files[0] ? e.target.files[0].name : 'Choose photo or PDF'; };
+      card.querySelector('[data-x=upload]').onclick = async e => {
+        const b = e.currentTarget, m = card.querySelector('.up-msg'), u = k => (card.querySelector(`[data-u=${k}]`) || {}).value || '';
+        const file = card.querySelector('[data-u=file]').files[0];
+        if (!file) return msg(m, 'Choose a photo or PDF first', true);
+        if (g.reg && !u('aircraft').trim()) return msg(m, 'Enter the drone make / model', true);
+        b.disabled = true; b.textContent = 'Uploading…';
+        try {
+          const pf = await prepFile(file);
+          const r = await papi('doc.upload', {target: id, type: g.type, title: g.other ? u('title').trim() || 'Certificate' : g.title, aircraft: u('aircraft').trim(), reg: u('reg').trim(),
+            expires: usDate(u('expires')), filename: pf.name, mime: pf.mime, data: toB64(pf.bytes)});
+          if (self) { MYDOCS = r.docs; updateWho(); }
+          drawFolder(v, id, self, P, r.docs);
+        } catch (x) { msg(m, 'Upload failed (' + x.message + ')', true); b.disabled = false; b.textContent = 'Upload'; }
+      };
+    });
+    v.querySelectorAll('[data-view]').forEach(b => b.onclick = async () => {
+      const tab = window.open('', '_blank');
+      try { const r = await papi('doc.get', {docId: b.dataset.view}); const url = URL.createObjectURL(new Blob([unb64(r.data)], {type: r.mime}));
+        if (tab) tab.location.href = url; else location.href = url; }
+      catch (x) { if (tab) tab.close(); alert('Could not open the document (' + x.message + ')'); }
+    });
+    v.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this document? It will be moved to the Drive trash.')) return;
+      try { const r = await papi('doc.delete', {docId: b.dataset.del}); if (self) { MYDOCS = r.docs; updateWho(); } drawFolder(v, id, self, P, r.docs); }
+      catch (x) { alert('Could not delete (' + x.message + ')'); }
+    });
+  }
+
+  async function openPilots() {
+    const v = $('pilotsView');
+    v.innerHTML = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Current Pilots</h2></div><p class="note">Loading…</p>`;
+    let r; try { r = await papi('pilots.list'); } catch (e) { v.querySelector('.note').outerHTML = `<p class="err-msg">Couldn't load pilots (${esc(e.message)}).</p>`; return; }
+    const ps = r.pilots.slice().sort((a, b) => (a.status === 'Inactive') - (b.status === 'Inactive') || String(a.name).localeCompare(String(b.name)));
+    v.innerHTML = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Current Pilots</h2></div>
+      <p class="note">Pilots appear here after they sign in for the first time. Tap a pilot to open their folder.</p>
+      <div class="plist">${ps.map(p => `<a class="prow${p.status === 'Inactive' ? ' inactive' : ''}" href="#pilot/${encodeURIComponent(p.id)}">
+        <div class="prow-main"><b>${esc(p.name || p.id)}</b>${p.role === 'admin' ? ' <span class="badge grey">Admin</span>' : ''}${p.status === 'Inactive' ? ' <span class="badge grey">Inactive</span>' : ''}
+          <div class="note">${p.cert ? 'Part 107 #' + esc(p.cert) : 'No cert # yet'} · ${p.docCount} document${p.docCount === 1 ? '' : 's'}${p.hasCert ? '' : ' · <span class="warn-inline">no cert copy</span>'}</div></div>
+        <div class="prow-due">${dueBadge(p)}</div><span class="tile-go">&rsaquo;</span></a>`).join('') || '<p class="note">No pilots yet.</p>'}</div>`;
+  }
+
   $('unlockForm').addEventListener('submit', async e => {
     e.preventDefault();
     const code = $('code').value;
@@ -1226,7 +1446,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         msg.innerHTML = 'The portal was updated. <a href="pilots.html?v=' + Date.now() + '"><b>Tap here to load the new version</b></a>, then enter your code again.';
         K = null; manifest = null; return;
       }
-      render(); route();
+      render(); route(); loadMe();
       $('code').value = '';
       $('lock').hidden = true; $('files').hidden = false; document.querySelector('.lead').hidden = true;
     } catch (err) {
@@ -1238,15 +1458,25 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
 
   function route() {
     if (!manifest) return;
-    const forms = location.hash === '#forms';
-    $('home').hidden = forms; $('formsView').hidden = !forms;
+    const h = location.hash, admin = ME && ME.role === 'admin', canPilot = !!(ME && manifest.submit);
+    let v = 'home';
+    if (h === '#forms') v = 'forms';
+    else if (h === '#me' && canPilot) v = 'folder';
+    else if (h === '#pilots' && admin && canPilot) v = 'pilots';
+    else if (h.startsWith('#pilot/') && admin && canPilot) v = 'folder';
+    const views = {home: 'home', forms: 'formsView', folder: 'folderView', pilots: 'pilotsView'};
+    Object.entries(views).forEach(([k, id]) => $(id).hidden = k !== v);
     $('formCount').textContent = manifest.forms.length + ' forms';
+    $('meTile').hidden = !canPilot; $('adminTile').hidden = !(admin && canPilot);
+    if (v === 'folder') openFolder(h === '#me' ? ME.id : decodeURIComponent(h.slice(7)));
+    if (v === 'pilots') openPilots();
     window.scrollTo(0, 0);
   }
   window.addEventListener('hashchange', route);
   $('lockBtn').addEventListener('click', () => {
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
-    K = null; manifest = null; $('formList').innerHTML = '';
+    K = null; manifest = null; ME = null; PROFILE = null; MYDOCS = []; $('formList').innerHTML = '';
+    $('whoName').innerHTML = '&#10003; Signed in'; $('whoCert').innerHTML = '';
     $('files').hidden = true; $('lock').hidden = false; document.querySelector('.lead').hidden = false; $('code').focus();
   });
 })();

@@ -22,7 +22,7 @@ CONFIG.json (keep it OUT of the repo; it contains the codes):
 }
 Any existing form not listed is removed. Codes not listed lose access.
 """
-import base64, json, os, re, secrets, sys, datetime
+import base64, json, os, re, secrets, sys, datetime, hmac, hashlib
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -50,7 +50,9 @@ def load_existing(code):
     k = kek(code, unb64(keys['salt']), keys['iter'])
     for s in keys['slots']:
         try:
-            K = AESGCM(k).decrypt(unb64(s['i']), unb64(s['k']), b'slot'); break
+            K = AESGCM(k).decrypt(unb64(s['i']), unb64(s['k']), b'slot')
+            if len(K) != 32: K = unb64(json.loads(K)['k'])
+            break
         except Exception:
             continue
     else:
@@ -88,6 +90,7 @@ def main(cfg_path):
     for name in os.listdir(OUT):
         os.remove(os.path.join(OUT, name))
     manifest = {'updated': datetime.date.today().isoformat(), 'page': cfg.get('page', 0), 'forms': []}
+    if cfg.get('submit', {}).get('url'): manifest['submit'] = cfg['submit']
     for f in forms:
         fid = 'f-' + secrets.token_hex(8)
         open(f'{OUT}/{fid}.bin', 'wb').write(seal(K, f['data'], fid.encode()))
@@ -99,9 +102,15 @@ def main(cfg_path):
 
     salt = secrets.token_bytes(16)
     slots = []
-    for code in codes.values():
+    admins = set(cfg.get('admins', []))
+    pkey = cfg.get('pilot_key', '')
+    for name, code in codes.items():
         iv = secrets.token_bytes(12)
-        slots.append({'i': b64(iv), 'k': b64(AESGCM(kek(code, salt, ITER)).encrypt(iv, K, b'slot'))})
+        pid = re.sub(r'[^A-Z0-9]+', '-', name.upper()).strip('-')
+        role = 'admin' if name in admins else 'pilot'
+        sec = b64(hmac.new(pkey.encode(), f'{pid}|{role}'.encode(), hashlib.sha256).digest()) if pkey else ''
+        body = json.dumps({'k': b64(K), 'id': pid, 'name': name, 'role': role, 'sec': sec}).encode()
+        slots.append({'i': b64(iv), 'k': b64(AESGCM(kek(code, salt, ITER)).encrypt(iv, body, b'slot'))})
     secrets.SystemRandom().shuffle(slots)
     json.dump({'v': 1, 'iter': ITER, 'salt': b64(salt), 'slots': slots}, open(f'{OUT}/keys.json', 'w'))
     print(f"built {len(forms)} form(s) for {len(codes)} pilot code(s): {', '.join(codes)}")
