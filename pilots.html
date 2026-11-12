@@ -223,16 +223,16 @@
 </header>
 
 <main>
-  <div class="eyebrow">Pilot Portal</div>
-  <h1>Pilot forms</h1>
-  <p class="lead">Enter your pilot code to open your checklists, mission records, and client forms.</p>
+  <div class="eyebrow">Overhead UAS</div>
+  <h1>Pilot Portal</h1>
+  <p class="lead">Enter your pilot code to sign in.</p>
 
   <section class="card" id="lock">
     <form id="unlockForm" autocomplete="off">
       <label for="code">Pilot code</label>
       <div class="row">
         <input id="code" type="password" placeholder="e.g. ABCD-1234" autocapitalize="characters" autocorrect="off" spellcheck="false" required>
-        <button class="btn btn-primary" id="unlockBtn" type="submit">Unlock forms</button>
+        <button class="btn btn-primary" id="unlockBtn" type="submit">Sign in</button>
       </div>
       <p class="msg" id="msg" role="status" aria-live="polite"></p>
       <p class="hint a2hs">Tip: add this page to your home screen. iPhone/iPad: tap Share, then <b>Add to Home Screen</b>. Android: tap ⋮, then <b>Add to Home screen</b>.</p>
@@ -242,15 +242,15 @@
 
   <section class="card" id="files" hidden>
     <div class="top">
-      <span class="welcome">&#10003; Unlocked</span>
-      <button class="btn btn-ghost" id="lockBtn" type="button">Lock</button>
+      <span class="welcome">&#10003; Signed in</span>
+      <button class="btn btn-ghost" id="lockBtn" type="button">Sign out</button>
     </div>
     <div class="forms" id="formList"></div>
     <p class="hint" id="updated"></p>
   </section>
 </main>
 
-<footer>Overhead UAS &middot; Pilot use only. Please don't share your code.</footer>
+<footer>Overhead UAS Pilot Portal &middot; Pilots only. Please don't share your code.</footer>
 
 <script>
 (() => {
@@ -333,7 +333,7 @@
       el.querySelector('[data-act=print]').onclick = e => getFile(f, 'print', e.currentTarget);
       list.appendChild(el);
     }
-    $('updated').textContent = 'Forms last updated ' + manifest.updated + '.';
+    $('updated').textContent = 'Portal last updated ' + manifest.updated + '.';
     const sync = () => list.querySelectorAll('.form').forEach(c => {
       const was = c.classList.contains('open'), now = !!c.querySelector(':scope > .fill');
       c.classList.toggle('open', now);
@@ -1194,17 +1194,17 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
       }
       render();
       $('code').value = '';
-      $('lock').hidden = true; $('files').hidden = false;
+      $('lock').hidden = true; $('files').hidden = false; document.querySelector('.lead').hidden = true;
     } catch (err) {
       msg.className = 'msg err'; msg.textContent = 'Something went wrong loading the portal. Please try again.';
     } finally {
-      btn.disabled = false; btn.textContent = 'Unlock forms';
+      btn.disabled = false; btn.textContent = 'Sign in';
     }
   });
 
   $('lockBtn').addEventListener('click', () => {
     K = null; manifest = null; $('formList').innerHTML = '';
-    $('files').hidden = true; $('lock').hidden = false; $('code').focus();
+    $('files').hidden = true; $('lock').hidden = false; document.querySelector('.lead').hidden = false; $('code').focus();
   });
 })();
 </script>
