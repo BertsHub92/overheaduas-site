@@ -82,6 +82,12 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .who-mission{margin-top:6px}
+  .mchip{display:inline-block;font-size:13px;font-weight:600;padding:5px 11px;border-radius:999px;background:rgba(199,119,0,.14);color:#a86400;text-decoration:none}
+  .mlist{display:grid;gap:10px;margin-top:12px}
+  .mfile{min-width:0;flex:1 1 200px;overflow-wrap:anywhere}
+  .pcard input[type=date][data-m]{width:100%}
+  a.btn{text-decoration:none}
   .aloft{border-collapse:collapse;margin:8px 0 4px;font-size:13.5px}
   .aloft th,.aloft td{border:1px solid var(--line);padding:4px 9px;text-align:center}
   .aloft th{font-size:11.5px;color:var(--muted);font-weight:600}
@@ -328,10 +334,15 @@
 
   <section class="card" id="files" hidden>
     <div class="top">
-      <div class="who"><div class="who-name" id="whoName">&#10003; Signed in</div><div class="who-cert" id="whoCert"></div></div>
+      <div class="who"><div class="who-name" id="whoName">&#10003; Signed in</div><div class="who-cert" id="whoCert"></div><div class="who-mission" id="whoMission"></div></div>
       <button class="btn btn-ghost" id="lockBtn" type="button">Sign out</button>
     </div>
     <div id="home" class="tiles">
+      <a class="tile" href="#missions" id="missionTile" hidden>
+        <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5M16 4v5M7 14h4"/></svg></div>
+        <div class="tile-body"><h3>Missions</h3><p>Start a new mission. Every form and plan for it is filed in its own folder.</p><span class="tile-meta" id="missionMeta">+ New mission</span></div>
+        <span class="tile-go">&rsaquo;</span>
+      </a>
       <a class="tile" href="#forms">
         <div class="tile-ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div>
         <div class="tile-body"><h3>Forms</h3><p>Checklists, mission records, client and pilot forms</p><span class="tile-meta" id="formCount"></span></div>
@@ -360,6 +371,7 @@
     </div>
     <div id="folderView" hidden></div>
     <div id="planView" hidden></div>
+    <div id="missionsView" hidden></div>
     <div id="pilotsView" hidden></div>
     <div id="formsView" hidden>
       <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Forms</h2></div>
@@ -373,7 +385,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 9; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 10; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -581,6 +593,8 @@
     let any = false;
     (F.remember || []).forEach(n => { const v = store.get(n); if (v && field(n)) { field(n).value = v; any = true; } });
     q('#fx_remember').checked = any;
+    const am = activeMission();
+    if (am && field('mission') && !field('mission').value) field('mission').value = am.name || '';
     const pl = planFor(f);
     if (pl) {
       const PF = {mission: pl.mission, date: pl.date, time: pl.time, start_time: pl.time, end_time: pl.end, mitigations: pl.mitigations, latitude: pl.address ? pl.address.split(',').slice(0, 3).join(',') + ' (' + pl.lat + ')' : String(pl.lat),
@@ -888,7 +902,7 @@
       if (S && S.url) {
         try {
           const res = await fetch(S.url, {method: 'POST', body: JSON.stringify({
-            token: S.token, filename: name, pdf: toB64(bytes), clientEmail, docId,
+            token: S.token, filename: name, pdf: toB64(bytes), clientEmail, docId, mission: (activeMission() || {}).id || '', pilot: ME,
             quiet: !!(E.emailOnly && !E.emailOnly.includes(V.decision)),
             copyTo, copySubject: fillT(E.copySubject || ''), copyMessage: fillMsg(E.copyMessage || ''),
             subject: fillT(E.subject || f.title), folder: E.folder || f.title, intro: E.intro || '',
@@ -902,7 +916,7 @@
       box.querySelector('.fill-actions').hidden = true;
       doneEl.hidden = false;
       doneEl.innerHTML = sent
-        ? `<p class="ok-msg"><b>&#10003; Signed ${esc(docLabel)} submitted.</b> ${sent.quiet ? 'Saved to Overhead UAS records. No email was sent' : 'Emailed to Overhead UAS'}${sent.sentClient ? ' and a copy to ' + esc(shownCopy) : ''}${sent.quiet ? '.' : ', and saved for safe keeping.'}</p>`
+        ? `<p class="ok-msg"><b>&#10003; Signed ${esc(docLabel)} submitted.</b> ${sent.quiet ? 'Saved to Overhead UAS records. No email was sent' : 'Emailed to Overhead UAS'}${sent.sentClient ? ' and a copy to ' + esc(shownCopy) : ''}${sent.quiet ? '.' : ', and saved for safe keeping.'}${sent.mission ? ' Filed in <b>' + esc(sent.mission) + '</b>.' : ''}</p>`
         : `<p class="err-msg"><b>The ${esc(docLabel)} is signed, but it couldn't be emailed automatically</b> (${esc(err)}). Use <b>Share / email</b> below to send it to overheaduas@gmail.com${shownCopy ? ' and ' + esc(shownCopy) : ''}, or download it.</p>`;
       doneEl.innerHTML += `<p class="note">Document ID: ${esc(docId)}</p>
         <div class="fill-actions"><button class="btn ${sent ? 'btn-ghost' : 'btn-primary'}" data-d="share">Share / email</button><button class="btn btn-ghost" data-d="dl">Download signed copy</button><button class="btn btn-ghost" data-d="new">Start a new ${esc(docLabel)}</button></div>`;
@@ -1512,7 +1526,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     if (!v.innerHTML) v.innerHTML = '<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div><p class="note">Loading map…</p>';
     plannerPromise ||= Promise.all([loadAsset('link', {rel: 'stylesheet', href: 'vendor/leaflet/leaflet.css'}), loadAsset('script', {src: 'vendor/leaflet/leaflet.js'})])
       .then(() => loadAsset('script', {src: 'planner.js?v=' + PAGE_VERSION}));
-    plannerPromise.then(() => window.OUAS_PLANNER.mount(v, {submit: manifest.submit, me: ME, profile: PROFILE, mydocs: MYDOCS, esc, usDate, toB64, loadPdfLib, fetchBytes, saveBlob, shareFile, nowStamp,
+    plannerPromise.then(() => window.OUAS_PLANNER.mount(v, {submit: manifest.submit, me: ME, profile: PROFILE, mydocs: MYDOCS, activeMission, esc, usDate, toB64, loadPdfLib, fetchBytes, saveBlob, shareFile, nowStamp,
       getForm: async prefix => { const f = manifest.forms.find(x => x.title.startsWith(prefix)); if (!f) throw new Error(prefix + ' not found'); return open(K, await fetchBytes('portal/' + f.id + '.bin'), f.id); }}))
       .catch(() => { v.innerHTML = '<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div><p class="err-msg">The map could not load. Check your connection and try again.</p>'; plannerPromise = null; });
   }
@@ -1520,6 +1534,79 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     let pl = null; try { pl = JSON.parse(localStorage.getItem('ouas_plan') || 'null'); } catch (e) {}
     if (!pl || Date.now() - pl.created > 3 * 864e5) return null;
     return /^OVH-20[15]/.test(f.title) ? pl : null;
+  }
+
+
+  // ---------- Missions ----------
+  const amKey = () => 'ouas_mission_' + (ME ? ME.id : '');
+  function activeMission() { try { return JSON.parse(localStorage.getItem(amKey()) || 'null'); } catch (e) { return null; } }
+  function setActive(m) { try { m ? localStorage.setItem(amKey(), JSON.stringify({id: m.id, name: m.name, client: m.client, date: m.date, location: m.location})) : localStorage.removeItem(amKey()); } catch (e) {} drawActive(); }
+  function drawActive() {
+    const am = ME && manifest && manifest.submit ? activeMission() : null;
+    $('whoMission').innerHTML = am ? `<a href="#mission/${encodeURIComponent(am.id)}" class="mchip">&#9679; Active: Mission ${esc(am.id)}${am.name ? ' · ' + esc(am.name) : ''}</a>` : '';
+    if ($('missionMeta')) $('missionMeta').textContent = am ? 'Active: Mission ' + am.id : '+ New mission';
+  }
+  const mBadge = m => m.status === 'Closed' ? '<span class="badge grey">Closed</span>' : '<span class="badge green">Open</span>';
+
+  async function openMissions() {
+    const v = $('missionsView');
+    v.innerHTML = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Missions</h2></div>
+      <div class="pcard"><div class="mnew-head"><h4>Start a new mission</h4></div>
+        <div class="grid2"><div class="wide"><label>Mission name <span class="req">*</span></label><input type="text" data-m="name" placeholder="e.g. Smith Realty listing shoot"></div>
+          <div><label>Client</label><input type="text" data-m="client"></div><div><label>Planned date</label><input type="date" data-m="date"></div>
+          <div class="wide"><label>Location / address</label><input type="text" data-m="location"></div></div>
+        <div class="fill-actions"><button class="btn btn-primary" data-x="new">+ Create mission</button><span class="save-msg"></span></div>
+        <p class="note">The new mission gets the next number and becomes your active mission. Forms, plans, and kneeboard packs you submit are filed in its folder until you switch or close it.</p></div>
+      <div class="mlist"><p class="note">Loading missions…</p></div>`;
+    v.querySelector('[data-x=new]').onclick = async e => {
+      const b = e.currentTarget, m = k => v.querySelector(`[data-m=${k}]`).value.trim(), msg = v.querySelector('.save-msg');
+      if (!m('name')) { msg.className = 'save-msg bad'; msg.textContent = 'Enter a mission name'; return; }
+      b.disabled = true; b.textContent = 'Creating…';
+      try { const r = await papi('mission.new', {name: m('name'), client: m('client'), date: usDate(m('date')), location: m('location')}); setActive(r.mission); location.hash = '#mission/' + encodeURIComponent(r.mission.id); }
+      catch (x) { msg.className = 'save-msg bad'; msg.textContent = 'Could not create (' + x.message + ')'; b.disabled = false; b.textContent = '+ Create mission'; }
+    };
+    let r; try { r = await papi('mission.list'); } catch (e) { v.querySelector('.mlist').innerHTML = `<p class="err-msg">Couldn't load missions (${esc(e.message)}).</p>`; return; }
+    const am = activeMission(), admin = ME.role === 'admin';
+    v.querySelector('.mlist').innerHTML = r.missions.length ? r.missions.map(m => `<a class="prow" href="#mission/${encodeURIComponent(m.id)}">
+        <div class="prow-main"><b>Mission ${esc(m.id)}</b> ${esc(m.name || '')} ${mBadge(m)}${am && am.id === m.id ? ' <span class="badge amber">Active</span>' : ''}
+          <div class="note">${[m.client, m.date, admin ? m.pilot : '', m.files + ' file' + (m.files === 1 ? '' : 's')].filter(Boolean).map(esc).join(' · ')}</div></div><span class="tile-go">&rsaquo;</span></a>`).join('')
+      : '<p class="note">No missions yet. Fill in the form above and tap Create mission to start one.</p>';
+  }
+
+  async function openMission(id) {
+    const v = $('missionsView');
+    v.innerHTML = `<div class="view-head"><a href="#missions" class="back-btn">&lsaquo; Missions</a><h2>Mission ${esc(id)}</h2></div><p class="note">Loading…</p>`;
+    let r; try { r = await papi('mission.get', {mission: id}); } catch (e) { v.querySelector('.note').outerHTML = `<p class="err-msg">Couldn't open this mission (${esc(e.message)}).</p>`; return; }
+    const m = r.mission, am = activeMission(), isActive = am && am.id === m.id;
+    if (isActive) setActive(m);
+    v.innerHTML = `<div class="view-head"><a href="#missions" class="back-btn">&lsaquo; Missions</a><h2>Mission ${esc(m.id)}</h2></div>
+      <div class="pcard"><div class="pcard-top"><div><b>${esc(m.name || '')}</b> ${mBadge(m)}${isActive ? ' <span class="badge amber">Active</span>' : ''}
+        <div class="note">${[m.client && 'Client: ' + m.client, m.date && 'Planned ' + m.date, m.location, 'Pilot: ' + (m.pilot || '')].filter(Boolean).map(esc).join(' · ')}</div></div></div>
+        <div class="fill-actions">
+          ${m.status === 'Closed' ? '' : isActive ? '<button class="btn btn-ghost sm" data-x="deact">Stop filing here</button>' : '<button class="btn btn-primary sm" data-x="act">Make active mission</button>'}
+          ${m.status === 'Closed' ? '' : '<a class="btn btn-ghost sm" href="#plan" data-x="plan">Plan this mission</a><a class="btn btn-ghost sm" href="#forms" data-x="forms">Open forms</a>'}
+          <button class="btn btn-ghost sm" data-x="close">${m.status === 'Closed' ? 'Reopen mission' : 'Close mission'}</button>
+        </div></div>
+      <div class="pcard"><h4>Mission files (${r.files.length})</h4>
+        ${r.files.length ? `<div class="doclist">${r.files.map(f => `<div class="doc-item"><div class="mfile"><b>${esc(f.form || 'File')}</b><div class="note">${esc(f.name)}<br>${esc(f.saved || '')}${f.by ? ' · ' + esc(f.by) : ''}</div></div>
+          <div class="doc-btns"><button class="btn btn-ghost sm" data-file="${esc(f.id)}">View</button></div></div>`).join('')}</div>`
+          : '<p class="note">Nothing filed yet. Make this the active mission, then submit forms or create a mission plan / kneeboard pack.</p>'}</div>`;
+    const go = (a, fn) => { const b = v.querySelector(`[data-x=${a}]`); if (b) b.onclick = fn; };
+    go('act', () => { setActive(m); openMission(id); });
+    go('deact', () => { setActive(null); openMission(id); });
+    go('plan', () => setActive(m));
+    go('forms', () => setActive(m));
+    go('close', async () => {
+      const to = m.status === 'Closed' ? 'Open' : 'Closed';
+      if (to === 'Closed' && !confirm(`Close Mission ${m.id}? Files stay in its folder. You can reopen it later.`)) return;
+      try { await papi('mission.update', {mission: id, status: to}); if (to === 'Closed' && isActive) setActive(null); openMission(id); } catch (x) { alert('Could not update (' + x.message + ')'); }
+    });
+    v.querySelectorAll('[data-file]').forEach(b => b.onclick = async () => {
+      const tab = window.open('', '_blank');
+      try { const f = await papi('mission.file', {mission: id, fileId: b.dataset.file}); const url = URL.createObjectURL(new Blob([unb64(f.data)], {type: f.mime}));
+        if (tab) tab.location.href = url; else location.href = url; }
+      catch (x) { if (tab) tab.close(); alert('Could not open the file (' + x.message + ')'); }
+    });
   }
 
   $('unlockForm').addEventListener('submit', async e => {
@@ -1554,23 +1641,26 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     let v = 'home';
     if (h === '#forms') v = 'forms';
     else if (h === '#plan') v = 'plan';
+    else if ((h === '#missions' || h.startsWith('#mission/')) && canPilot) v = 'missions';
     else if (h === '#me' && canPilot) v = 'folder';
     else if (h === '#pilots' && admin && canPilot) v = 'pilots';
     else if (h.startsWith('#pilot/') && admin && canPilot) v = 'folder';
-    const views = {home: 'home', forms: 'formsView', folder: 'folderView', pilots: 'pilotsView', plan: 'planView'};
+    const views = {home: 'home', forms: 'formsView', folder: 'folderView', pilots: 'pilotsView', plan: 'planView', missions: 'missionsView'};
     Object.entries(views).forEach(([k, id]) => $(id).hidden = k !== v);
     $('formCount').textContent = manifest.forms.length + ' forms';
-    $('meTile').hidden = !canPilot; $('adminTile').hidden = !(admin && canPilot);
+    $('meTile').hidden = !canPilot; $('adminTile').hidden = !(admin && canPilot); $('missionTile').hidden = !canPilot; drawActive();
     if (v === 'folder') openFolder(h === '#me' ? ME.id : decodeURIComponent(h.slice(7)));
     if (v === 'pilots') openPilots();
     if (v === 'plan') openPlanner();
+    if (v === 'missions') h.startsWith('#mission/') ? openMission(decodeURIComponent(h.slice(9))) : openMissions();
     window.scrollTo(0, 0);
   }
   window.addEventListener('hashchange', route);
   $('lockBtn').addEventListener('click', () => {
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     K = null; manifest = null; ME = null; PROFILE = null; MYDOCS = []; $('formList').innerHTML = '';
-    $('whoName').innerHTML = '&#10003; Signed in'; $('whoCert').innerHTML = '';
+    $('whoName').innerHTML = '&#10003; Signed in'; $('whoCert').innerHTML = ''; $('whoMission').innerHTML = '';
+    if ($('missionsView')) $('missionsView').innerHTML = '';
     $('files').hidden = true; $('lock').hidden = false; document.querySelector('.lead').hidden = false; $('code').focus();
   });
 })();

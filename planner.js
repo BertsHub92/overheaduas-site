@@ -64,7 +64,7 @@
   window.OUAS_PLANNER = {mount};
 
   function mount(root, X) {
-    if (root._planner) { root._planner.map.invalidateSize(); return; }
+    if (root._planner) { root._planner.map.invalidateSize(); if (root._planner.sync) root._planner.sync(); return; }
     const esc = X.esc;
     const S = {lat: null, lon: null, address: '', tz: undefined, brief: null, manual: {}, aircraft: null};
     root.innerHTML = `
@@ -104,6 +104,9 @@
       </div>`;
     const $ = id => root.querySelector('#' + id);
     const today = new Date(); $('plDate').value = new Date(today - today.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    const am0 = X.activeMission && X.activeMission();
+    if (am0) { $('plMission').value = am0.name || ''; const md = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(am0.date || ''); if (md) $('plDate').value = `${md[3]}-${md[1].padStart(2, '0')}-${md[2].padStart(2, '0')}`;
+      if (am0.location) $('plSearch').value = am0.location; }
 
     // ---- map
     const sat = L.tileLayer(ESRI, {maxZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics'});
@@ -113,7 +116,11 @@
     L.control.layers({'Satellite': sat, 'Streets': streets}, {'Airspace boundaries': airLayer, 'LAANC grid ceilings': gridLayer, 'TFRs': tfrLayer}, {collapsed: true}).addTo(map);
     L.control.scale({imperial: true, metric: false}).addTo(map);
     let pin = null, ring = null;
-    root._planner = {map};
+    root._planner = {map, sync() {   // switching to a different active mission refills the mission fields
+      const am = X.activeMission && X.activeMission(); if (!am || am.id === S.missionId) return; S.missionId = am.id;
+      $('plMission').value = am.name || ''; const md = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(am.date || ''); if (md) $('plDate').value = `${md[3]}-${md[1].padStart(2, '0')}-${md[2].padStart(2, '0')}`;
+      if (am.location) $('plSearch').value = am.location; }};
+    S.missionId = am0 ? am0.id : null;
     setTimeout(() => map.invalidateSize(), 50);
 
     function setPin(lat, lon, label, zoom) {
@@ -507,9 +514,11 @@
       msg(`<b>&#10003; ${label} ready.</b> <a href="${url}" target="_blank" rel="noopener">Open / print</a> · <a href="#" data-dl>Save to this device</a> · <a href="#" data-share>Share</a> <span class="note" data-drive></span>`);
       $('plMsg').querySelector('[data-dl]').onclick = ev => { ev.preventDefault(); X.saveBlob(url, name); };
       $('plMsg').querySelector('[data-share]').onclick = async ev => { ev.preventDefault(); const r = await X.shareFile(file, 'Overhead UAS ' + label.toLowerCase()); if (r === false) X.saveBlob(url, name); };
+      const am = X.activeMission && X.activeMission();
       if (X.submit && X.submit.url) fetch(X.submit.url, {method: 'POST', body: JSON.stringify({token: X.submit.token, filename: name, pdf: X.toB64(bytes), folder: 'Mission Plans', quiet: true,
+        mission: am ? am.id : '', pilot: X.me,
         subject: label + ': ' + ($('plMission').value || S.address), lines: ['Form: OVH-208']})}).then(r => r.json())
-        .then(j => { const d = $('plMsg').querySelector('[data-drive]'); if (d) d.textContent = j.ok ? '· Saved to Overhead UAS records' : ''; }).catch(() => {});
+        .then(j => { const d = $('plMsg').querySelector('[data-drive]'); if (d) d.textContent = j.ok ? (j.mission ? '· Filed in ' + j.mission : '· Saved to Overhead UAS records') : ''; }).catch(() => {});
     }
     async function run(btn, label, fn) {
       if (!ready()) return msg('Drop a pin and wait for the briefing first.', true);

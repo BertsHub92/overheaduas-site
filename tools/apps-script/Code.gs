@@ -18,6 +18,10 @@
  *
  * Mission Planning: looks up FAA TFRs (plan.tfr) and METAR / TAF / Kp (plan.wx).
  *
+ * Missions: numbered missions (starting at 002) with their own Drive folder
+ * (Overhead UAS Records/Missions/Mission 002 - name). Forms submitted while a
+ * mission is active are filed there and listed in the Missions sheet.
+ *
  * Setup: see the instructions Claude provided. Deploy as a Web app,
  * "Execute as: Me", "Who has access: Anyone".
  */
@@ -39,13 +43,15 @@ function doPost(e) {
     // 1. Save to Drive
     var month = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM');
     var type = String(data.folder || 'Service Agreements').replace(/[\/\\]+/g, '-').slice(0, 80);
-    var file = folder(folder(folder(null, ROOT_FOLDER), type), month).createFile(blob);
+    var mission = missionFor(data);   // file into the pilot's active mission folder when one is set
+    var file = (mission ? mission.folder : folder(folder(folder(null, ROOT_FOLDER), type), month)).createFile(blob);
+    if (mission) logMissionFile(mission, data, file, name);
 
     // 2. Email Overhead UAS
     var s = data.summary || {};
     var lines = data.lines && data.lines.length ? [
       (data.intro || 'A new form was submitted through the Pilot Portal.'), ''
-    ].concat(data.lines.map(String), ['', 'Document ID: ' + (data.docId || '-'), 'Saved to Google Drive: ' + file.getUrl()]) : [
+    ].concat(mission ? ['Mission: ' + mission.label] : [], data.lines.map(String), ['', 'Document ID: ' + (data.docId || '-'), 'Saved to Google Drive: ' + file.getUrl()]) : [
       'A new agreement was signed through the Pilot Portal.', '',
       'Client: ' + (s.client || '-'),
       'Site: ' + (s.site || '-'),
@@ -81,7 +87,7 @@ function doPost(e) {
         {attachments: [blob], name: 'Overhead UAS', replyTo: OFFICE_EMAIL});
       sentClient = true;
     }
-    return reply({ok: true, sentClient: sentClient, quiet: !!data.quiet});
+    return reply({ok: true, sentClient: sentClient, quiet: !!data.quiet, mission: mission ? mission.label : ''});
   } catch (err) {
     return reply({ok: false, error: String(err)});
   }
@@ -159,6 +165,7 @@ function addAircraft(ss, a, by) {
 }
 
 function handleAction(d) {
+  if (/^mission\./.test(d.action)) return missionAction(d);
   if (/^(me|pilot|pilots|doc)\./.test(d.action)) return pilotAction(d);
   if (d.action === 'plan.tfr') return planTfr(d);
   if (d.action === 'plan.wx') return planWx(d);
@@ -221,7 +228,9 @@ var PILOT_BOOK = 'Overhead UAS Pilot Records';
 var PTABS = {
   Pilots: ['Pilot ID', 'Name', 'Phone', 'Email', 'Part 107 cert #', 'Original issue date', 'Last recurrent / test date', 'Recurrent due',
            'Other certs & ratings', 'Role', 'Status', 'Updated', 'Updated by'],
-  Documents: ['Doc ID', 'Pilot ID', 'Type', 'Title', 'Aircraft', 'Registration #', 'Expires', 'File name', 'Uploaded', 'Uploaded by', 'Status']
+  Documents: ['Doc ID', 'Pilot ID', 'Type', 'Title', 'Aircraft', 'Registration #', 'Expires', 'File name', 'Uploaded', 'Uploaded by', 'Status'],
+  Missions: ['Mission #', 'Name', 'Client', 'Planned date', 'Location', 'Pilot ID', 'Pilot', 'Status', 'Folder ID', 'Created', 'Closed'],
+  'Mission Files': ['Mission #', 'Form', 'File name', 'File ID', 'Saved', 'Saved by']
 };
 var PFIELDS = ['name', 'phone', 'email', 'cert', 'issued', 'recurrent', 'due', 'other'];
 
@@ -415,4 +424,73 @@ function planWx(d) {
       .filter(function (r) { return new Date(r.time) > new Date(Date.now() - 6 * 36e5); }).slice(0, 30);
   } catch (e) {}
   return out;
+}
+
+
+// ===================== Missions =====================
+var MISSION_START = 2;   // the first portal mission is 002 (001 was done before the portal)
+
+function missionLabel(o) { return 'Mission ' + o['Mission #'] + (o['Name'] ? ' - ' + o['Name'] : ''); }
+
+function missionFor(data) {
+  if (!data.mission || !data.pilot) return null;
+  try {
+    var ss = pilotBook(), me = pilotAuth(data, ss);
+    var r = findRow(ss.getSheetByName('Missions'), 'Mission #', String(data.mission));
+    if (!r || (String(r.obj['Pilot ID']) !== me.id && !me.admin)) return null;
+    return {ss: ss, me: me, row: r, label: missionLabel(r.obj), folder: DriveApp.getFolderById(String(r.obj['Folder ID']))};
+  } catch (e) { return null; }
+}
+
+function logMissionFile(m, data, file, name) {
+  m.ss.getSheetByName('Mission Files').appendRow([m.row.obj['Mission #'], clean(String(data.folder || data.subject || 'Form').slice(0, 60), 60), clean(name, 150), file.getId(), new Date(), clean(m.me.name, 80)]);
+}
+
+function missionInfo(o) {
+  return {id: String(o['Mission #']), name: o['Name'], client: o['Client'], date: o['Planned date'], location: o['Location'], pilotId: o['Pilot ID'], pilot: o['Pilot'],
+          status: o['Status'], created: o['Created'], closed: o['Closed']};
+}
+
+function missionAction(d) {
+  var ss = pilotBook(), me = pilotAuth(d, ss), lock = LockService.getScriptLock();
+  var M = ss.getSheetByName('Missions'), F = ss.getSheetByName('Mission Files');
+  var mine = function (o) { return me.admin || String(o['Pilot ID']) === me.id; };
+
+  if (d.action === 'mission.new') {
+    lock.waitLock(20000);
+    try {
+      var props = PropertiesService.getScriptProperties(), n = Number(props.getProperty('MISSION_NEXT') || MISSION_START);
+      var id = ('00' + n).slice(-3); props.setProperty('MISSION_NEXT', String(n + 1));
+      var name = clean(d.name, 80) || 'Untitled';
+      var f = folder(folder(null, ROOT_FOLDER), 'Missions').createFolder('Mission ' + id + ' - ' + String(name).replace(/[\/\\]+/g, '-'));
+      M.appendRow([id, name, clean(d.client, 80), clean(d.date, 20), clean(d.location, 150), me.id, clean(me.name, 80), 'Open', f.getId(), new Date(), '']);
+      return {ok: true, mission: missionInfo(findRow(M, 'Mission #', id).obj)};
+    } finally { lock.releaseLock(); }
+  }
+  if (d.action === 'mission.list') {
+    return {ok: true, missions: rows(M).filter(mine).map(function (o) {
+      var m = missionInfo(o); m.files = rows(F).filter(function (x) { return String(x['Mission #']) === m.id; }).length; return m;
+    }).reverse()};
+  }
+  var r = findRow(M, 'Mission #', String(d.mission || ''));
+  if (!r || !mine(r.obj)) return {ok: false, error: 'mission not found'};
+  if (d.action === 'mission.get') {
+    var files = rows(F).filter(function (x) { return String(x['Mission #']) === String(r.obj['Mission #']); }).map(function (x) {
+      return {form: x['Form'], name: x['File name'], id: x['File ID'], saved: x['Saved'], by: x['Saved by']}; });
+    return {ok: true, mission: missionInfo(r.obj), files: files};
+  }
+  if (d.action === 'mission.update') {
+    var o = r.obj, st = d.status === 'Closed' ? 'Closed' : d.status === 'Open' ? 'Open' : o['Status'];
+    var vals = [o['Mission #'], clean(d.name || o['Name'], 80), clean(d.client !== undefined ? d.client : o['Client'], 80), clean(d.date !== undefined ? d.date : o['Planned date'], 20),
+                clean(d.location !== undefined ? d.location : o['Location'], 150), o['Pilot ID'], o['Pilot'], st, o['Folder ID'], o['Created'], st === 'Closed' ? new Date() : ''];
+    M.getRange(r.i, 1, 1, vals.length).setValues([vals]);
+    return {ok: true, mission: missionInfo(findRow(M, 'Mission #', String(o['Mission #'])).obj)};
+  }
+  if (d.action === 'mission.file') {
+    var fr = rows(F).filter(function (x) { return String(x['Mission #']) === String(r.obj['Mission #']) && String(x['File ID']) === String(d.fileId); })[0];
+    if (!fr) return {ok: false, error: 'file not found'};
+    var bl = DriveApp.getFileById(String(d.fileId)).getBlob();
+    return {ok: true, mime: bl.getContentType(), name: fr['File name'], data: Utilities.base64Encode(bl.getBytes())};
+  }
+  return {ok: false, error: 'unknown action'};
 }
