@@ -306,11 +306,10 @@
         const name = field(s.nameField)?.value.trim() || '';
         signaturePad(s.label, name, png => {
           const when = nowStamp();
-          box._sigs[s.key] = {png, when, name};
+          box._sigs[s.key] = {png, when, name, date: todayIso()};
           const el = q(`[data-sig="${s.key}"]`); el.classList.remove('invalid'); el.classList.add('signed');
           el.querySelector('.sig-preview').innerHTML = `<img alt="${esc(s.label)} signature" src="${png}"><small>Signed ${esc(when)}</small>`;
           q(`[data-sign="${s.key}"]`).textContent = 'Redo';
-          if (s.dateField && field(s.dateField) && !field(s.dateField).value) field(s.dateField).value = todayIso();
         });
       };
     });
@@ -385,8 +384,26 @@
     err.hidden = true; return true;
   }
 
+  // All PDF field values: what was typed, plus values filled in automatically
+  // (e.g. the client's name and phone appear in several places on the PDF).
+  function pdfValues(f, box) {
+    const v = {};
+    box.querySelectorAll('[data-n]').forEach(i => {
+      let x = i.value.trim(); if (i.dataset.t === 'date') x = usDate(x);
+      if (i.dataset.t === 'money' && x) x = Number(x).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      v[i.dataset.n] = x;
+    });
+    for (const d of (f.fill.derive || [])) {
+      if (d.sig) { const s = box._sigs[d.sig]; v[d.to] = s ? usDate(s.date) : ''; continue; }
+      if (d.first && v[d.first]) { v[d.to] = v[d.first]; continue; }
+      v[d.to] = (d.join || []).map(n => v[n]).filter(Boolean).join(d.sep || ' ');
+    }
+    return v;
+  }
+
   function fileName(f, box) {
-    const client = (box.querySelector('[data-n=client_company]')?.value || box.querySelector('[data-n=client_name]')?.value || '').trim().replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const v = pdfValues(f, box);
+    const client = (v.company || v.client_name || v.client_company || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
     return f.filename.replace(/\.pdf$/i, '') + (client ? '_' + client : '');
   }
 
@@ -397,11 +414,9 @@
     const {PDFDocument, StandardFonts} = await loadPdfLib();
     const doc = await PDFDocument.load(await open(K, await fetchBytes('portal/' + f.id + '.bin'), f.id));
     const form = doc.getForm();
-    box.querySelectorAll('[data-n]').forEach(i => {
-      let v = i.value.trim(); if (i.dataset.t === 'date') v = usDate(v);
-      if (i.dataset.t === 'money' && v) v = Number(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-      try { const t = form.getTextField(i.dataset.n); t.setMaxLength(undefined); t.setText(v); } catch (e) {}
-    });
+    for (const [n, v] of Object.entries(pdfValues(f, box))) {
+      try { const t = form.getTextField(n); t.setMaxLength(undefined); t.setText(v); } catch (e) {}
+    }
     box.querySelectorAll('[data-c]').forEach(c => { try { const cb = form.getCheckBox(c.dataset.c); c.checked ? cb.check() : cb.uncheck(); } catch (e) {} });
     let docId = '';
     if (signed) {
@@ -467,7 +482,7 @@
         try {
           const res = await fetch(S.url, {method: 'POST', body: JSON.stringify({
             token: S.token, filename: name, pdf: toB64(bytes), clientEmail, docId,
-            summary: {client: val('client_company'), clientName: val('client_name'), site: val('site_address'), dates: val('flight_dates'), services, cost: val('job_cost'), pilot: val('pilot_name')}
+            summary: {client: pdfValues(f, box).client_company, clientName: val('client_name'), site: val('site_address'), dates: val('flight_dates'), services, cost: val('job_cost'), pilot: val('pilot_name')}
           })});
           sent = await res.json();
           if (!sent.ok) { err = sent.error || 'unknown error'; sent = null; }
