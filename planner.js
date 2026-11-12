@@ -1,7 +1,9 @@
 /* Overhead UAS Pilot Portal – Mission Planning (OVH-208)
- * Map (OpenStreetMap / Esri imagery via Leaflet), address search (Nominatim),
+ * Map (Esri imagery / OpenStreetMap via Leaflet), address search (Nominatim),
  * FAA airspace, LAANC grid, airports, special use airspace (FAA ArcGIS open data),
- * TFRs (FAA, fetched by the Overhead UAS Google script), NWS weather, sun times.
+ * TFRs + METAR/TAF + Kp (fetched by the Overhead UAS Google script),
+ * NWS observations, Open-Meteo hourly forecast with winds aloft, sun times,
+ * automatic risk score (OVH-205 rules), and a kneeboard pack (OVH-201 + OVH-205).
  * A planning aid only: pilots must still verify with B4UFLY / a LAANC provider.
  */
 (function () {
@@ -14,6 +16,13 @@
   const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   const OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   const RANK = {B: 4, C: 3, D: 2, E: 1};
+  const FACTORS = [
+    {g: 'f1', name: 'Wind / gusts', auto: true, hard: true}, {g: 'f2', name: 'Visibility / ceiling', auto: true, hard: true},
+    {g: 'f3', name: 'Precipitation / temp', auto: true, hard: true}, {g: 'f4', name: 'Airspace', auto: true, hard: true},
+    {g: 'f5', name: 'Obstacles & wires', opts: ['Few', 'Some', 'Many / close']}, {g: 'f6', name: 'People & traffic', opts: ['None', 'Controlled', 'Crowds / roads']},
+    {g: 'f7', name: 'Launch / landing area', opts: ['Open & clear', 'Tight', 'Poor / unstable']}, {g: 'f8', name: 'Pilot (IMSAFE)', opts: ['Rested, fit', 'Tired / rushed', 'Not fit'], hard: true},
+    {g: 'f9', name: 'Aircraft & batteries', aircraft: true, opts: ['Airworthy', 'Minor issue', 'Unresolved issue']}, {g: 'f10', name: 'Mission complexity', auto: true}];
+  const LV = ['', 'Low', 'Medium', 'High'], LVC = ['', 'green', 'amber', 'red'];
 
   // ---------------- helpers ----------------
   const rad = Math.PI / 180;
@@ -21,7 +30,7 @@
     const x = Math.sin(dLat / 2) ** 2 + Math.cos(a * rad) * Math.cos(c * rad) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); }
   function bearing(a, b, c, d) { const y = Math.sin((d - b) * rad) * Math.cos(c * rad), x = Math.cos(a * rad) * Math.sin(c * rad) - Math.sin(a * rad) * Math.cos(c * rad) * Math.cos((d - b) * rad);
     const deg = (Math.atan2(y, x) / rad + 360) % 360; return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8]; }
-  async function getJSON(url, opt) { const r = await fetch(url, opt); if (!r.ok) throw new Error('HTTP ' + r.status); const j = await r.json(); if (j && j.error) throw new Error(j.error.message || 'service error'); return j; }
+  async function getJSON(url, opt) { const r = await fetch(url, opt); if (!r.ok) throw new Error('HTTP ' + r.status); const j = await r.json(); if (j && j.error && typeof j.error !== 'boolean') throw new Error(j.error.message || j.reason || 'service error'); return j; }
   const qs = o => Object.entries(o).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
   function arcgis(layer, p) { return getJSON(layer + '/query?' + qs(Object.assign({f: 'json', outFields: '*', returnGeometry: false, inSR: 4326, outSR: 4326}, p))); }
   function arcPoint(layer, lat, lon, extra) { return arcgis(layer, Object.assign({geometry: lon + ',' + lat, geometryType: 'esriGeometryPoint', spatialRel: 'esriSpatialRelIntersects'}, extra || {})); }
@@ -29,6 +38,7 @@
     geometry: [lon - d, lat - d, lon + d, lat + d].join(','), geometryType: 'esriGeometryEnvelope', spatialRel: 'esriSpatialRelIntersects', geometryPrecision: 5}, extra || {}))); }
   const pick = (o, re) => { for (const k of Object.keys(o || {})) if (re.test(k) && o[k] !== null && o[k] !== '') return o[k]; return ''; };
   const altTxt = (v, u, c) => (v === null || v === undefined || v === '') ? '' : (String(c || '').toUpperCase() === 'SFC' || (+v === 0 && !c) ? 'SFC' : `${v} ${u || 'ft'} ${c || ''}`.trim());
+  const r0 = x => x === null || x === undefined || isNaN(x) ? null : Math.round(x);
 
   // Sun times (SunCalc formulas)
   function sunTimes(date, lat, lng) {
@@ -44,14 +54,22 @@
     return {sunrise, sunset, dawn, dusk};
   }
 
+  // Weather → risk levels (OVH-205 thresholds)
+  const windLevel = kt => kt === null ? 0 : kt < 10 ? 1 : kt <= 20 ? 2 : 3;
+  const visLevel = (sm, low) => sm === null ? 0 : (sm < 3 ? 3 : (sm < 5 || (low !== null && low >= 70)) ? 2 : 1);
+  const wxLevel = (pop, t) => { if (pop === null && t === null) return 0; let l = 1;
+    if ((pop !== null && pop >= 25) || (t !== null && (t < 40 || t > 95))) l = 2;
+    if ((pop !== null && pop >= 60) || (t !== null && (t < 32 || t > 105))) l = 3; return l; };
+
   window.OUAS_PLANNER = {mount};
 
   function mount(root, X) {
     if (root._planner) { root._planner.map.invalidateSize(); return; }
     const esc = X.esc;
-    const S = {lat: null, lon: null, address: '', tz: undefined, brief: null};
+    const S = {lat: null, lon: null, address: '', tz: undefined, brief: null, manual: {}, aircraft: null};
     root.innerHTML = `
       <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div>
+      <div id="plBanner"></div>
       <div class="pcard plan-card">
         <div class="plan-search"><input type="search" id="plSearch" placeholder="Search an address or place" autocomplete="off">
           <button class="btn btn-primary sm" id="plGo">Search</button><button class="btn btn-ghost sm" id="plMe" title="Use my location">&#9678; Me</button></div>
@@ -61,18 +79,25 @@
         <div class="grid2 plan-inputs">
           <div class="wide"><label>Mission</label><input type="text" id="plMission" placeholder="e.g. Smith Realty listing shoot"></div>
           <div><label>Flight date</label><input type="date" id="plDate"></div><div><label>Start time</label><input type="time" id="plTime" value="10:00"></div>
+          <div><label>Planned end time</label><input type="time" id="plEnd" value="11:00"></div>
           <div><label>Flight radius</label><select id="plRadius"><option value="200">200 ft</option><option value="400" selected>400 ft</option><option value="800">800 ft</option><option value="1500">1,500 ft</option><option value="2640">0.5 mi</option></select></div>
           <div><label>Max altitude (ft AGL)</label><input type="number" id="plAlt" value="400" min="0" max="400" step="10" inputmode="numeric"></div>
+          <div><label>Aircraft</label><select id="plAc"><option value="">Select aircraft…</option></select></div>
+          <label class="remember wide"><input type="checkbox" id="plLong">SKYHOOK long-line / payload drop on this mission</label>
         </div>
       </div>
       <div id="plBrief"></div>
+      <div id="plRisk"></div>
       <div class="pcard" id="plNotesCard" hidden>
         <h4>Hazards &amp; notes</h4>
         <p class="note">Add anything you see on the satellite map or know about the site: trees, power lines, towers, roads, people, launch / landing spot.</p>
-        <textarea id="plNotes" rows="4" placeholder="e.g. Power lines along the street on the south side. Launch from the driveway."></textarea>
+        <textarea id="plNotes" rows="3" placeholder="e.g. Power lines along the street on the south side. Launch from the driveway."></textarea>
+        <h4>Mitigations / crew briefing</h4>
+        <textarea id="plMit" rows="2" placeholder="Required for every HIGH rating, e.g. VO watches the road, launch from the driveway"></textarea>
         <div class="fill-actions">
-          <button class="btn btn-primary" id="plPdf">Create mission plan (PDF)</button>
-          <button class="btn btn-ghost" id="plSend">Use in Mission Sheet &amp; Risk Assessment</button>
+          <button class="btn btn-primary" id="plKnee">Kneeboard pack: Mission Sheet + Risk Assessment</button>
+          <button class="btn btn-ghost" id="plPdf">Full mission plan (PDF)</button>
+          <button class="btn btn-ghost" id="plSend">Send to online forms to sign</button>
         </div>
         <p class="plan-msg" id="plMsg"></p>
         <p class="note">Planning aid only. Always verify airspace and TFRs with B4UFLY or an FAA-approved LAANC app (e.g. Aloft) and get LAANC authorization before flying in controlled airspace.</p>
@@ -102,8 +127,38 @@
       briefing();
     }
     map.on('click', e => setPin(e.latlng.lat, e.latlng.lng));
-    $('plRadius').onchange = () => { if (S.lat !== null) { if (ring) ring.setRadius(+$('plRadius').value * 0.3048); } };
-    $('plDate').onchange = $('plTime').onchange = $('plAlt').onchange = () => { if (S.brief && !S.brief.loading) drawBrief(); };
+    $('plRadius').onchange = () => { if (ring) ring.setRadius(+$('plRadius').value * 0.3048); };
+    const redraw = () => { if (S.brief && !S.brief.loading) { drawBrief(); drawRisk(); } };
+    $('plDate').onchange = $('plTime').onchange = $('plAlt').onchange = $('plLong').onchange = $('plEnd').onchange = redraw;
+
+    // ---- aircraft list (company aircraft from the maintenance log + the pilot's registered drones)
+    const acList = [];
+    (async () => {
+      const sel = $('plAc');
+      (X.mydocs || []).filter(d => d.type === 'Drone registration').forEach(d => acList.push({kind: 'mine', label: (d.aircraft || 'Drone') + (d.reg ? ' (' + d.reg + ')' : ''), reg: d.reg, model: d.aircraft}));
+      if (X.submit && X.submit.url) {
+        try { const r = await (await fetch(X.submit.url, {method: 'POST', body: JSON.stringify({token: X.submit.token, action: 'aircraft.list'})})).json();
+          (r.aircraft || []).forEach(a => acList.push({kind: 'co', id: a.id, label: [a.nickname, a.model].filter(Boolean).join(' – ') + (a.reg ? ' (' + a.reg + ')' : ''), reg: a.reg, model: a.model, nickname: a.nickname})); } catch (e) {}
+      }
+      sel.innerHTML = '<option value="">Select aircraft…</option>' + acList.map((a, i) => `<option value="${i}">${esc(a.label)}${a.kind === 'mine' ? ' · my drone' : ''}</option>`).join('') + '<option value="other">Other / not listed</option>';
+    })();
+    $('plAc').onchange = async () => {
+      const v = $('plAc').value; S.aircraft = v === '' ? null : v === 'other' ? {label: 'Other aircraft', status: null} : Object.assign({}, acList[+v], {status: 'checking'});
+      delete S.manual.f9; drawRisk();
+      const a = S.aircraft;
+      if (a && a.kind === 'co' && X.submit && X.submit.url) {
+        try { const r = await (await fetch(X.submit.url, {method: 'POST', body: JSON.stringify({token: X.submit.token, action: 'maint.history', aircraftId: a.id})})).json();
+          const es = (r.entries || []).slice().sort((p, q) => new Date(q['Entry date']) - new Date(p['Entry date']));
+          const last = es[0], insp = es.find(e => /inspection/i.test(e['Entry type']));
+          a.lastResult = last ? last['Result'] : ''; a.lastDate = last ? last['Entry date'] : ''; a.inspDate = insp ? insp['Entry date'] : '';
+          const days = a.inspDate ? Math.floor((Date.now() - new Date(a.inspDate)) / 864e5) : null;
+          a.level = a.lastResult === 'GROUNDED' ? 3 : (days === null || days > 35) ? 2 : 1;
+          a.why = a.lastResult === 'GROUNDED' ? `GROUNDED (last entry ${a.lastDate})` : days === null ? 'No monthly inspection on record' : days > 35 ? `Last inspection ${a.inspDate} (${days} days ago – overdue)` : `Airworthy · inspected ${a.inspDate}`;
+        } catch (e) { a.level = 0; a.why = 'Could not check the maintenance log'; }
+        a.status = 'done';
+      } else if (a) { a.status = 'done'; a.level = 0; a.why = a.kind === 'mine' ? 'Your drone: rate its condition' : 'Rate the aircraft condition'; }
+      if (S.aircraft === a) drawRisk();
+    };
 
     // ---- search
     async function search() {
@@ -124,54 +179,61 @@
         if (S.lat === lat && S.lon === lon) { S.address = r.display_name || ''; drawBrief(); } } catch (e) {}
     }
 
-    // ---- briefing
+    // ---- briefing data
+    const script = (action, body) => X.submit && X.submit.url
+      ? fetch(X.submit.url, {method: 'POST', body: JSON.stringify(Object.assign({token: X.submit.token, action}, body))}).then(r => r.json()).then(j => { if (!j.ok) throw new Error(j.error || action + ' failed'); return j; })
+      : Promise.reject(new Error('not connected'));
     async function briefing() {
       const lat = S.lat, lon = S.lon;
-      S.brief = {loading: true};
-      $('plNotesCard').hidden = false;
-      drawBrief();
+      S.brief = {loading: true}; S.manual = Object.fromEntries(Object.entries(S.manual).filter(([k]) => ['f5', 'f6', 'f7', 'f8', 'f9'].includes(k)));
+      $('plNotesCard').hidden = false; drawBrief(); drawRisk();
       const B = {lat, lon};
+      const wx = nws(lat, lon);
       const jobs = {
         grid: arcPoint(L_GRID, lat, lon).then(r => r.features.map(f => f.attributes)),
         cls: arcPoint(L_CLASS, lat, lon).then(r => r.features.map(f => f.attributes)),
         sua: arcgis(L_SUA, {geometry: lon + ',' + lat, geometryType: 'esriGeometryPoint', spatialRel: 'esriSpatialRelIntersects', distance: 3, units: 'esriSRUnit_StatuteMile'}).then(r => r.features.map(f => f.attributes)),
         apt: arcgis(L_APT, {geometry: lon + ',' + lat, geometryType: 'esriGeometryPoint', spatialRel: 'esriSpatialRelIntersects', distance: 5, units: 'esriSRUnit_StatuteMile', returnGeometry: true}).then(r => r.features),
-        tfr: X.submit && X.submit.url ? fetch(X.submit.url, {method: 'POST', body: JSON.stringify({token: X.submit.token, action: 'plan.tfr', lat, lon, miles: 30})}).then(r => r.json()).then(j => { if (!j.ok) throw new Error(j.error || 'TFR lookup failed'); return j.tfrs; }) : Promise.reject(new Error('not connected')),
-        wx: weatherFor(lat, lon)
+        tfr: script('plan.tfr', {lat, lon, miles: 30}).then(j => j.tfrs),
+        wx,
+        om: getJSON('https://api.open-meteo.com/v1/forecast?' + qs({latitude: lat.toFixed(4), longitude: lon.toFixed(4), forecast_days: 7, timezone: 'auto',
+          wind_speed_unit: 'kn', temperature_unit: 'fahrenheit', precipitation_unit: 'inch',
+          hourly: 'temperature_2m,precipitation_probability,weather_code,cloud_cover_low,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,wind_speed_80m,wind_speed_120m,wind_direction_120m'})),
+        avwx: wx.catch(() => null).then(w => script('plan.wx', {lat, lon, station: w && w.obs ? w.obs.station : ''}))
       };
       const keys = Object.keys(jobs), res = await Promise.allSettled(Object.values(jobs));
-      if (S.lat !== lat || S.lon !== lon) return;   // pin moved while loading
+      if (S.lat !== lat || S.lon !== lon) return;
       keys.forEach((k, i) => { B[k] = res[i].status === 'fulfilled' ? res[i].value : null; B[k + 'Err'] = res[i].status === 'rejected' ? (res[i].reason && res[i].reason.message) || 'unavailable' : ''; });
-      S.brief = B; S.tz = B.wx && B.wx.tz;
-      drawBrief(); drawOverlays(lat, lon);
+      S.brief = B; S.tz = (B.om && B.om.timezone) || (B.wx && B.wx.tz);
+      drawBrief(); drawRisk(); drawOverlays(lat, lon);
     }
-
-    async function weatherFor(lat, lon) {
-      const pt = await getJSON(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`, {headers: {Accept: 'application/geo+json'}});
+    async function nws(lat, lon) {
+      const H = {headers: {Accept: 'application/geo+json'}};
+      const pt = await getJSON(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`, H);
       const P = pt.properties, out = {tz: P.timeZone, place: P.relativeLocation && P.relativeLocation.properties ? P.relativeLocation.properties.city + ', ' + P.relativeLocation.properties.state : ''};
-      const [hourly, obs] = await Promise.allSettled([
-        getJSON(P.forecastHourly, {headers: {Accept: 'application/geo+json'}}),
-        getJSON(P.observationStations, {headers: {Accept: 'application/geo+json'}}).then(st => {
-          const id = st.features[0].properties.stationIdentifier;
-          return getJSON(`https://api.weather.gov/stations/${id}/observations/latest`, {headers: {Accept: 'application/geo+json'}}).then(o => Object.assign({station: id}, o.properties)); })]);
-      out.periods = hourly.status === 'fulfilled' ? hourly.value.properties.periods : null;
-      out.obs = obs.status === 'fulfilled' ? obs.value : null;
+      try { const st = await getJSON(P.observationStations, H); const id = st.features[0].properties.stationIdentifier;
+        const o = await getJSON(`https://api.weather.gov/stations/${id}/observations/latest`, H); out.obs = Object.assign({station: id}, o.properties); } catch (e) { out.obs = null; }
       return out;
     }
 
-    function planDate() { const d = $('plDate').value, t = $('plTime').value || '10:00'; return d ? new Date(d + 'T' + t + ':00') : new Date(); }
+    // ---- time helpers (location's time zone)
     const fmtT = d => d && !isNaN(d) ? d.toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit', timeZone: S.tz}) : '–';
-    const hhmm = d => { if (!d || isNaN(d)) return ''; const s = d.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false, timeZone: S.tz}); return s; };
-
-    function forecastAt() {
-      const B = S.brief; if (!B || !B.wx || !B.wx.periods) return null;
-      const t = planDate().getTime();
-      const ps = B.wx.periods;
-      return ps.find(p => new Date(p.startTime).getTime() <= t && new Date(p.endTime).getTime() > t) ||
-        (ps.length && t < new Date(ps[0].startTime).getTime() ? ps[0] : null);   // planned time already passed today: use the current hour
+    const hhmm = d => d && !isNaN(d) ? d.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false, timeZone: S.tz}) : '';
+    const ampm = t => { const m = /^(\d{2}):(\d{2})/.exec(t || ''); if (!m) return t || ''; const h = +m[1]; return `${(h % 12) || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`; };
+    const planDate = () => new Date(($('plDate').value || '') + 'T' + ($('plTime').value || '10:00') + ':00');
+    function hourly(dateStr, hour) {      // Open-Meteo hour (local times like 2026-11-20T10:00)
+      const O = S.brief && S.brief.om && S.brief.om.hourly; if (!O) return null;
+      const key = `${dateStr}T${String(hour).padStart(2, '0')}:00`, i = O.time.indexOf(key); if (i < 0) return null;
+      const g = k => (O[k] || [])[i];
+      const w10 = g('wind_speed_10m'), w80 = g('wind_speed_80m'), w120 = g('wind_speed_120m'), gust = g('wind_gusts_10m');
+      return {time: key, temp: r0(g('temperature_2m')), pop: r0(g('precipitation_probability')), code: g('weather_code'), low: r0(g('cloud_cover_low')),
+        vis: g('visibility') === null || g('visibility') === undefined ? null : Math.round(g('visibility') / 1609.34 * 10) / 10,
+        w10: r0(w10), w80: r0(w80), w120: r0(w120), gust: r0(gust), dir: g('wind_direction_120m') ?? g('wind_direction_10m')};
     }
-    const mphToKt = m => Math.round(m * 0.869);
-    function windMax(p) { const n = String((p && p.windSpeed) || '').match(/\d+/g); return n ? Math.max(...n.map(Number)) : null; }
+    const dirTxt = d => d === null || d === undefined ? '' : ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(d / 45) % 8];
+    const WMO = c => c === null || c === undefined ? '' : c === 0 ? 'Clear' : c <= 3 ? ['Mostly clear', 'Partly cloudy', 'Overcast'][c - 1] : c <= 48 ? 'Fog' : c <= 57 ? 'Drizzle' : c <= 67 ? 'Rain' : c <= 77 ? 'Snow' : c <= 82 ? 'Showers' : c <= 86 ? 'Snow showers' : 'Thunderstorms';
+    const flightWind = h => h ? Math.max(...[h.w10, h.w80, h.w120, h.gust].filter(x => x !== null && x !== undefined)) : null;
+    const altWind = h => { if (!h) return null; const a = +$('plAlt').value || 400; return a <= 50 ? h.w10 : a <= 300 ? h.w80 : h.w120; };
 
     function summarize() {
       const B = S.brief || {}, grid = B.grid || [], cls = B.cls || [];
@@ -180,38 +242,70 @@
       const ceilings = grid.map(g => +pick(g, /^CEILING$/i)).filter(x => !isNaN(x));
       const ceiling = ceilings.length ? Math.min(...ceilings) : null;
       const gAirport = grid.length ? (pick(grid[0], /APT1_ICAO|APT1_FAAID|APT1_LAANC|ARPT_ID|AIRPORT/i) || '') : '';
-      let airspace, risk = 1, laanc = '';
-      if (B.gridErr && B.clsErr) { airspace = 'Could not load airspace data'; risk = 2; }
+      const alt = +$('plAlt').value || 400;
+      let airspace, risk = 1, laanc = '', why = '';
+      if (B.gridErr && B.clsErr) { airspace = 'Could not load airspace data'; risk = 2; why = 'Airspace not verified'; }
       else if (grid.length || top) {
         const c = top ? String(pick(top, /^CLASS$/i)).toUpperCase() : '';
         airspace = (c ? 'Class ' + c : 'Controlled airspace') + (top && pick(top, /^NAME$/i) ? ' (' + pick(top, /^NAME$/i) + ')' : '');
         laanc = ceiling === null ? 'No LAANC grid here: requires FAA DroneZone authorization' : ceiling === 0 ? 'LAANC ceiling 0 ft: no LAANC, FAA DroneZone authorization needed' : `LAANC grid ceiling ${ceiling} ft AGL${gAirport ? ' (' + gAirport + ')' : ''}`;
-        risk = (c === 'B' || c === 'C' || ceiling === 0 || ceiling === null) ? 3 : 2;
-      } else { airspace = 'Class G (uncontrolled) at 400 ft AGL and below'; laanc = 'No LAANC authorization needed'; }
-      const alt = +$('plAlt').value || 400;
-      if (ceiling !== null && ceiling > 0 && alt > ceiling) laanc += ` · planned ${alt} ft is ABOVE the grid ceiling`;
-      const tfrs = (B.tfr || []).filter(t => t.inside || t.miles <= 5);
-      if (tfrs.some(t => t.inside)) risk = 3;
-      const f = forecastAt(), wmph = windMax(f), pop = f && f.probabilityOfPrecipitation ? f.probabilityOfPrecipitation.value : null;
+        risk = (c === 'B' || c === 'C' || ceiling === 0 || ceiling === null) ? 3 : 2; why = (c ? 'Class ' + c : 'Controlled') + (ceiling ? `, LAANC ${ceiling} ft` : '');
+      } else { airspace = 'Class G (uncontrolled) at 400 ft AGL and below'; laanc = 'No LAANC authorization needed'; why = 'Class G'; }
+      const above = ceiling !== null && ceiling > 0 && alt > ceiling;
+      if (above) laanc += ` · planned ${alt} ft is ABOVE the grid ceiling`;
+      const tfrIn = (B.tfr || []).filter(t => t.inside), tfrNear = (B.tfr || []).filter(t => !t.inside && t.miles <= 5);
+      if (tfrIn.length) { risk = 3; why = 'Inside a TFR'; } else if (tfrNear.length && risk < 2) { risk = 2; why += ', TFR within 5 mi'; }
       const sun = S.lat !== null ? sunTimes(planDate(), S.lat, S.lon) : null;
-      return {airspace, laanc, ceiling, airspaceRisk: risk, tfrs, f, wmph, wkt: wmph === null ? null : mphToKt(wmph), pop, sun};
+      const d = $('plDate').value, h = +($('plTime').value || '10:00').slice(0, 2);
+      const fc = hourly(d, h);
+      return {airspace, laanc, ceiling, above, airspaceRisk: risk, airspaceWhy: why, tfrs: tfrIn.concat(tfrNear), fc, sun};
     }
 
+    // ---- automatic factor ratings
+    function autoRatings(Z) {
+      const fc = Z.fc, o = {};
+      const fw = flightWind(fc);
+      o.f1 = fc ? {lv: windLevel(fw), why: `${fc.w120 ?? '–'} kt at 400 ft, ${fc.w80 ?? '–'} kt at 260 ft, gusts ${fc.gust ?? '–'} kt`} : {lv: 0, why: 'No forecast for this time'};
+      o.f2 = fc ? {lv: visLevel(fc.vis, fc.low), why: `Visibility ${fc.vis ?? '–'} SM, low clouds ${fc.low ?? '–'}%`} : {lv: 0, why: 'No forecast for this time'};
+      o.f3 = fc ? {lv: wxLevel(fc.pop, fc.temp), why: `${WMO(fc.code)}, precip ${fc.pop ?? '–'}%, ${fc.temp ?? '–'}°F`} : {lv: 0, why: 'No forecast for this time'};
+      o.f4 = {lv: Z.airspaceRisk, why: Z.airspaceWhy};
+      const start = planDate(), endT = $('plEnd').value ? new Date($('plDate').value + 'T' + $('plEnd').value + ':00') : start;
+      const night = Z.sun && (start < Z.sun.dawn || endT > Z.sun.dusk);
+      let lv = 1, why = [];
+      if (night) { lv = 2; why.push('Night / outside civil twilight'); }
+      if ($('plLong').checked) { lv = Math.max(lv, 2); why.push('Long-line'); }
+      if (night && $('plLong').checked) lv = 3;
+      if (Z.above) { lv = 3; why.push('Above LAANC ceiling'); }
+      o.f10 = {lv, why: why.join(', ') || 'Routine'};
+      if (S.aircraft && S.aircraft.status === 'done' && S.aircraft.level) o.f9 = {lv: S.aircraft.level, why: S.aircraft.why};
+      return o;
+    }
+    function ratings() {
+      const Z = summarize(), A = autoRatings(Z), R = {};
+      FACTORS.forEach(f => { const m = S.manual[f.g], a = A[f.g]; R[f.g] = m ? {lv: m, why: a ? (m !== a.lv ? 'Changed by pilot · ' : '') + a.why : '', manual: true} : a ? Object.assign({auto: true}, a) : {lv: 0, why: ''}; });
+      if (!R.f9.why && S.aircraft && S.aircraft.why) R.f9.why = S.aircraft.why;
+      const rated = FACTORS.filter(f => R[f.g].lv);
+      const score = rated.reduce((s, f) => s + R[f.g].lv, 0), hard = FACTORS.some(f => f.hard && R[f.g].lv === 3);
+      const complete = rated.length === FACTORS.length;
+      const decision = !complete ? '' : (hard || score >= 23) ? 'NO-GO' : score >= 16 ? 'CAUTION' : 'GO';
+      return {R, score, rated: rated.length, complete, decision, hard, highs: FACTORS.filter(f => R[f.g].lv === 3).map(f => f.name)};
+    }
+
+    // ---- briefing UI
     function drawBrief() {
       const box = $('plBrief'), B = S.brief;
       if (!B) { box.innerHTML = ''; return; }
       if (B.loading) { box.innerHTML = `<div class="pcard"><h4>Briefing</h4><p class="note">Checking airspace, TFRs, airports, and weather for ${S.lat}, ${S.lon}…</p></div>`; return; }
-      const Z = summarize(), err = m => `<span class="badge grey">${esc(m || 'unavailable')}</span>`;
-      const apts = (B.apt || []).map(f => { const a = f.attributes, g = f.geometry || {}; const y = g.y, x = g.x;
-        const d = (y !== undefined) ? distMi(S.lat, S.lon, y, x) : null;
-        const type = String(pick(a, /^TYPE_CODE$/i)).toUpperCase(); return {name: pick(a, /^NAME$/i), id: pick(a, /^IDENT$|ICAO_ID/i), heli: type === 'HP' || /HELI/i.test(pick(a, /^NAME$/i)), priv: +pick(a, /PRIVATE/i) === 1, d, dir: d === null ? '' : bearing(S.lat, S.lon, y, x)}; })
+      const Z = summarize(), fc = Z.fc, err = m => `<span class="badge grey">${esc(m || 'unavailable')}</span>`;
+      const apts = (B.apt || []).map(f => { const a = f.attributes, g = f.geometry || {}; const d = (g.y !== undefined) ? distMi(S.lat, S.lon, g.y, g.x) : null;
+        const type = String(pick(a, /^TYPE_CODE$/i)).toUpperCase(); return {name: pick(a, /^NAME$/i), id: pick(a, /^IDENT$|ICAO_ID/i), heli: type === 'HP' || /HELI/i.test(pick(a, /^NAME$/i)), priv: +pick(a, /PRIVATE/i) === 1, d, dir: d === null ? '' : bearing(S.lat, S.lon, g.y, g.x)}; })
         .sort((a, b) => (a.d || 99) - (b.d || 99));
-      const sua = B.sua || [];
-      const f = Z.f, o = B.wx && B.wx.obs;
+      const sua = B.sua || [], o = B.wx && B.wx.obs, av = B.avwx || {};
       const obsTxt = o ? [o.textDescription, o.temperature && o.temperature.value !== null ? Math.round(o.temperature.value * 9 / 5 + 32) + '°F' : '',
         o.windSpeed && o.windSpeed.value !== null ? 'wind ' + Math.round(o.windSpeed.value * 0.54) + ' kt' : '', o.windGust && o.windGust.value !== null ? 'gusts ' + Math.round(o.windGust.value * 0.54) + ' kt' : '',
         o.visibility && o.visibility.value !== null ? 'vis ' + Math.round(o.visibility.value / 1609) + ' SM' : ''].filter(Boolean).join(', ') + ` (${o.station})` : '';
       const rk = Z.airspaceRisk === 3 ? 'red' : Z.airspaceRisk === 2 ? 'amber' : 'green';
+      const kpNow = (av.kp || []).find(k => new Date(k.time) >= new Date(planDate().getTime() - 3 * 36e5)) || null;
       box.innerHTML = `<div class="pcard plan-brief">
         <div class="pcard-top"><div><b>${esc(S.address || 'Selected location')}</b><div class="note">${S.lat}, ${S.lon}${B.wx && B.wx.place ? ' · near ' + esc(B.wx.place) : ''}</div></div></div>
         <div class="brow"><div class="bl">Airspace</div><div>${B.gridErr && B.clsErr ? err(B.gridErr) : `<span class="badge ${rk}">${esc(Z.airspace)}</span><div class="note">${esc(Z.laanc)}</div>`}</div></div>
@@ -222,10 +316,48 @@
           : apts.slice(0, 6).map(a => `<div>${a.heli ? '&#x1F681;' : '&#x2708;&#xFE0F;'} ${esc(a.id)} ${esc(a.name)}${a.priv ? ' <span class="note">(private)</span>' : ''} <span class="note">${a.d === null ? '' : a.d.toFixed(1) + ' mi ' + a.dir}</span></div>`).join('')}</div></div>
         <div class="brow"><div class="bl">Special use airspace</div><div>${B.suaErr ? err(B.suaErr) : !sua.length ? '<span class="badge green">None within 3 mi</span>'
           : sua.map(a => `<div><span class="badge amber">${esc(pick(a, /^TYPE_CODE$/i) || 'SUA')}</span> ${esc(pick(a, /^NAME$/i))} <span class="note">${esc([altTxt(pick(a, /^LOWER_VAL$/i), pick(a, /^LOWER_UOM$/i), pick(a, /^LOWER_CODE$/i)), altTxt(pick(a, /^UPPER_VAL$/i), pick(a, /^UPPER_UOM$/i), pick(a, /^UPPER_CODE$/i))].filter(Boolean).join(' – '))}</span></div>`).join('')}</div></div>
-        <div class="brow"><div class="bl">Forecast (${esc($('plDate').value)} ${esc($('plTime').value)})</div><div>${B.wxErr ? err(B.wxErr) : f ? `${esc(f.shortForecast)}, ${f.temperature}°${f.temperatureUnit}, wind ${esc(f.windDirection)} ${esc(f.windSpeed)}${Z.wkt !== null ? ' (~' + Z.wkt + ' kt)' : ''}${Z.pop !== null ? ', precip ' + Z.pop + '%' : ''}`
-          : '<span class="note">Hourly forecast covers about the next 7 days.</span>'}${obsTxt ? `<div class="note">Now: ${esc(obsTxt)}</div>` : ''}</div></div>
+        <div class="brow"><div class="bl">Forecast at start</div><div>${B.omErr && !fc ? err(B.omErr) : fc ? `<b>${esc(WMO(fc.code))}</b>, ${fc.temp}°F, precip ${fc.pop ?? '–'}%, visibility ${fc.vis ?? '–'} SM, low clouds ${fc.low ?? '–'}%
+          <table class="aloft"><tr><th></th><th>Ground</th><th>260 ft</th><th>400 ft</th><th>Gusts</th></tr><tr><td>Wind (kt)</td><td>${fc.w10 ?? '–'}</td><td>${fc.w80 ?? '–'}</td><td>${fc.w120 ?? '–'}</td><td>${fc.gust ?? '–'}</td></tr></table>
+          <div class="note">From ${dirTxt(fc.dir)} · winds aloft are usually stronger than at the ground.</div>${fc.temp !== null && fc.temp < 40 ? '<div class="warn-inline">Cold: warm batteries and expect shorter flight times.</div>' : fc.temp !== null && fc.temp > 95 ? '<div class="warn-inline">Hot: watch motor and battery temperatures.</div>' : ''}`
+          : '<span class="note">Forecast covers the next 7 days.</span>'}</div></div>
+        <div class="brow"><div class="bl">Best time to fly</div><div>${timeline(Z)}</div></div>
+        <div class="brow"><div class="bl">Aviation weather</div><div>${B.avwxErr ? err(B.avwxErr) : `${av.metar ? `<div class="mono">${esc(av.metar.raw)}</div>` : '<span class="note">No METAR found nearby.</span>'}
+          ${av.taf ? `<div class="mono taf">${esc(av.taf.raw)}</div><div class="note">TAF from ${esc(av.taf.station)}${av.taf.miles ? ', ' + av.taf.miles + ' mi away' : ''}</div>` : '<div class="note">No TAF within about 40 mi.</div>'}`}
+          ${obsTxt ? `<div class="note">Now: ${esc(obsTxt)}</div>` : ''}</div></div>
+        <div class="brow"><div class="bl">GPS / space weather</div><div>${B.avwxErr || !av.kp ? err('Kp unavailable') : kpNow ? `<span class="badge ${kpNow.kp >= 5 ? 'red' : kpNow.kp >= 4 ? 'amber' : 'green'}">Kp ${kpNow.kp}</span> <span class="note">${kpNow.kp >= 5 ? 'Geomagnetic storm: GPS may be degraded. Be ready to fly manually (ATTI).' : kpNow.kp >= 4 ? 'Active: watch GPS satellite count.' : 'Quiet: normal GPS expected.'}</span>` : '<span class="note">Kp forecast covers about 3 days.</span>'}</div></div>
         <div class="brow"><div class="bl">Sun</div><div>${Z.sun ? `Civil dawn ${fmtT(Z.sun.dawn)} · Sunrise ${fmtT(Z.sun.sunrise)} · Sunset ${fmtT(Z.sun.sunset)} · Civil dusk ${fmtT(Z.sun.dusk)}` : ''}<div class="note">Flying before civil dawn or after civil dusk is night operations (anti-collision lighting and night training required).</div></div></div>
       </div>`;
+      box.querySelectorAll('[data-hr]').forEach(b => b.onclick = () => { $('plTime').value = String(b.dataset.hr).padStart(2, '0') + ':00';
+        const e = (+b.dataset.hr + 1) % 24; $('plEnd').value = String(e).padStart(2, '0') + ':00'; redraw(); });
+    }
+    function timeline(Z) {
+      const d = $('plDate').value; if (!S.brief.om || !hourly(d, 12)) return '<span class="note">Hourly forecast covers the next 7 days.</span>';
+      const sel = +($('plTime').value || '10:00').slice(0, 2);
+      const cells = [];
+      for (let h = 5; h <= 21; h++) {
+        const fc = hourly(d, h); if (!fc) continue;
+        const t = new Date(`${d}T${String(h).padStart(2, '0')}:30:00`);
+        const dark = Z.sun && (t < Z.sun.dawn || t > Z.sun.dusk);
+        const lv = Math.max(windLevel(flightWind(fc)), visLevel(fc.vis, fc.low), wxLevel(fc.pop, fc.temp), dark ? 2 : 1);
+        cells.push(`<button class="tl ${LVC[lv]}${h === sel ? ' sel' : ''}" data-hr="${h}" title="${h}:00 · ${flightWind(fc)} kt · ${fc.pop}% precip${dark ? ' · dark' : ''}"><span>${(h % 12) || 12}${h < 12 ? 'a' : 'p'}</span><b>${flightWind(fc)}</b></button>`);
+      }
+      return `<div class="timeline">${cells.join('')}</div><div class="note">Strongest wind or gust (kt) each hour. Green good · yellow caution · red poor. Tap an hour to plan for it.</div>`;
+    }
+
+    // ---- risk UI
+    function drawRisk() {
+      const box = $('plRisk');
+      if (!S.brief || S.brief.loading) { box.innerHTML = ''; $('plBanner').innerHTML = ''; return; }
+      const K = ratings();
+      const ban = K.complete ? `<div class="risk-banner ${K.decision === 'GO' ? 'go' : K.decision === 'CAUTION' ? 'caution' : 'nogo'}"><b>${K.decision}</b><span>Risk score ${K.score}${K.hard ? ' · HIGH in ' + K.highs.filter(n => FACTORS.find(f => f.name === n).hard).join(', ') : ''}</span></div>`
+        : `<div class="risk-banner pending"><b>Risk score ${K.score || '–'}</b><span>${K.rated} of 10 factors rated · rate the rest below</span></div>`;
+      $('plBanner').innerHTML = ban;
+      box.innerHTML = `<div class="pcard"><h4>Risk assessment (OVH-205)</h4>${ban}
+        <div class="rlist">${FACTORS.map(f => { const r = K.R[f.g], opts = f.opts || ['Low', 'Medium', 'High'];
+          return `<div class="rrow"><div class="rname"><b>${esc(f.name)}</b>${r.auto ? ' <span class="badge grey">auto</span>' : ''}${f.aircraft && S.aircraft ? ' <span class="note">' + esc(S.aircraft.label) + '</span>' : ''}<div class="note">${esc(r.why || (f.aircraft && !S.aircraft ? 'Pick the aircraft above, or rate it' : ''))}</div></div>
+            <div class="seg">${[1, 2, 3].map(l => `<label><input type="radio" name="rk_${f.g}" data-g="${f.g}" value="${l}"${r.lv === l ? ' checked' : ''}><span class="${l === 3 ? 'hi' : ''}">${esc(f.opts ? opts[l - 1] : LV[l])}</span></label>`).join('')}</div></div>`; }).join('')}</div>
+        <p class="note">GO 10–15 · CAUTION 16–22 · NO-GO 23+. Any HIGH in wind, visibility, precipitation, airspace, or pilot fitness is a NO-GO. Weather and airspace are rated automatically; tap to change any rating.</p></div>`;
+      box.querySelectorAll('input[data-g]').forEach(i => i.onchange = () => { S.manual[i.dataset.g] = +i.value; drawRisk(); });
     }
 
     function drawOverlays(lat, lon) {
@@ -241,12 +373,13 @@
       ((S.brief && S.brief.tfr) || []).forEach(t => { if (t.geometry) L.geoJSON(t.geometry, {style: {color: '#c42330', weight: 2, fillOpacity: 0.12}}).bindTooltip(t.title).addTo(tfrLayer); });
     }
 
-    // ---- static map image for the PDF (satellite tiles drawn onto a canvas)
-    async function mapImage() {
-      const W = 768, H = 432, rM = +$('plRadius').value * 0.3048;
-      const z = Math.max(12, Math.min(18, Math.floor(Math.log2(156543.034 * Math.cos(S.lat * rad) / (rM / 140)))));
+    // ---- static satellite map image (JPEG bytes) with the radius drawn on it
+    async function mapImage(W = 768, H = 432, pad = 140) {
+      const rM = +$('plRadius').value * 0.3048;
+      const z = Math.max(12, Math.min(18, Math.floor(Math.log2(156543.034 * Math.cos(S.lat * rad) / (rM / pad)))));
       const n = 2 ** z, px = (S.lon + 180) / 360 * n * 256, py = (1 - Math.log(Math.tan(S.lat * rad) + 1 / Math.cos(S.lat * rad)) / Math.PI) / 2 * n * 256;
       const x0 = px - W / 2, y0 = py - H / 2, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#dde3ea'; ctx.fillRect(0, 0, W, H);
       const loads = [];
       for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + W) / 256); tx++) for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + H) / 256); ty++) {
         loads.push(new Promise(ok => { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => { ctx.drawImage(im, tx * 256 - x0, ty * 256 - y0); ok(); }; im.onerror = () => ok();
@@ -257,40 +390,89 @@
       ctx.strokeStyle = '#ff2b3a'; ctx.lineWidth = 3; ctx.fillStyle = 'rgba(255,43,58,.12)';
       ctx.beginPath(); ctx.arc(W / 2, H / 2, rM / mpp, 0, 7); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#ff2b3a'; ctx.beginPath(); ctx.arc(W / 2, H / 2, 6, 0, 7); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(W - 34, 8, 26, 30); ctx.fillStyle = '#0b1f33'; ctx.font = 'bold 13px Helvetica'; ctx.fillText('N', W - 25, 22);
+      ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fillRect(W - 34, 8, 26, 30); ctx.fillStyle = '#0b1f33'; ctx.font = 'bold 13px Helvetica'; ctx.fillText('N', W - 25, 22);
       ctx.beginPath(); ctx.moveTo(W - 21, 26); ctx.lineTo(W - 26, 35); ctx.lineTo(W - 16, 35); ctx.fill();
+      const ft = Math.round(+$('plRadius').value); ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fillRect(8, H - 26, 170, 18); ctx.fillStyle = '#0b1f33'; ctx.font = '11px Helvetica'; ctx.fillText(`Red circle: ${ft.toLocaleString()} ft radius`, 13, H - 13);
       try { const b = await new Promise(ok => cv.toBlob(ok, 'image/jpeg', 0.85)); return b ? new Uint8Array(await b.arrayBuffer()) : null; } catch (e) { return null; }
     }
 
-    // ---- PDF
+    // ---- text bits shared by the PDFs and forms
+    function texts() {
+      const Z = summarize(), fc = Z.fc, B = S.brief || {}, av = B.avwx || {};
+      const wx = fc ? `${WMO(fc.code)}, ${fc.temp}°F, precip ${fc.pop ?? '-'}%, vis ${fc.vis ?? '-'} SM. Wind ${dirTxt(fc.dir)} ${fc.w10 ?? '-'} kt sfc / ${fc.w120 ?? '-'} kt at 400 ft, gusts ${fc.gust ?? '-'} kt` : '';
+      const hz = [$('plNotes').value.trim(), ...Z.tfrs.map(t => (t.inside ? 'INSIDE TFR: ' : 'TFR ' + t.miles + ' mi: ') + (t.title.length > 60 ? t.title.slice(0, 57) + '...' : t.title)),
+        ...(B.apt || []).slice(0, 2).map(f => { const a = f.attributes, g = f.geometry || {}; return (String(pick(a, /^TYPE_CODE$/i)).toUpperCase() === 'HP' ? 'Heliport ' : 'Airport ') + pick(a, /^IDENT$/i) + (g.y !== undefined ? ' ' + distMi(S.lat, S.lon, g.y, g.x).toFixed(1) + ' mi ' + bearing(S.lat, S.lon, g.y, g.x) : ''); })].filter(Boolean).join('; ');
+      const short = Z.airspace.replace(/\s*\(.*\)\s*/, '').replace(' (uncontrolled) at 400 ft AGL and below', '').replace('Could not load airspace data', 'Verify airspace');
+      const lshort = Z.ceiling !== null ? (Z.ceiling ? `LAANC ${Z.ceiling} ft AGL` : 'LAANC 0 ft: DroneZone auth') : /Class G/.test(Z.airspace) ? 'no LAANC needed' : 'no LAANC grid';
+      return {Z, wx, hz, metar: av.metar ? av.metar.raw : '', air: Z.airspace + (Z.laanc ? ' · ' + Z.laanc : ''), airShort: short + ' · ' + lshort + (Z.above ? ' · plan ABOVE ceiling' : '') + (Z.tfrs.some(t => t.inside) ? ' · IN TFR' : '')};
+    }
+    const pilotName = () => (X.profile && X.profile.name) || (X.me && X.me.name) || '';
+    const fileTag = () => ($('plMission').value || S.address.split(',')[0] || 'Plan').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
+    const ready = () => S.brief && !S.brief.loading;
+
+    // ---- Kneeboard pack: filled OVH-201 (map in the sketch box) + OVH-205
+    async function kneeboard() {
+      const {PDFDocument, StandardFonts} = await X.loadPdfLib();
+      const T = texts(), K = ratings(), out = await PDFDocument.create();
+      out.setTitle('Kneeboard pack – OVH-201 + OVH-205'); out.setAuthor('Overhead UAS');
+      // OVH-201
+      const ms = await PDFDocument.load(await X.getForm('OVH-201')), f1 = ms.getForm();
+      const set = (form, n, v) => { try { const t = form.getTextField(n), txt = String(v || ''); t.setMaxLength(undefined); t.setText(txt);
+        const big = ['weather', 'hazards', 'mitigations'].includes(n); t.setFontSize(big ? (txt.length > 170 ? 6.5 : txt.length > 110 ? 7.5 : 9) : (txt.length > 48 ? 7 : 9.5)); } catch (e) {} };
+      const latTxt = (S.address ? S.address.split(',').slice(0, 2).join(',') + ' · ' : '') + S.lat;
+      [['mission', $('plMission').value], ['date', X.usDate($('plDate').value)], ['time', ampm($('plTime').value)], ['weather', T.wx], ['hazards', T.hz],
+       ['latitude', latTxt], ['longitude', String(S.lon)], ['airspace', T.airShort], ['sunset_time', T.Z.sun ? fmtT(T.Z.sun.sunset) : ''],
+       ['start_time', ampm($('plTime').value)], ['end_time', ampm($('plEnd').value)], ['name_position', pilotName() ? pilotName() + ' / RPIC' : '']].forEach(([n, v]) => set(f1, n, v));
+      try {
+        const tf = f1.getTextField('sketch'), r = tf.acroField.getWidgets()[0].getRectangle(), img = await mapImage(Math.round(r.width * 2.2), Math.round(r.height * 2.2), 120);
+        if (img) { const im = await ms.embedJpg(img); ms.getPages()[0].drawImage(im, {x: r.x, y: r.y, width: r.width, height: r.height}); }
+        f1.removeField(tf);
+      } catch (e) {}
+      f1.updateFieldAppearances(await ms.embedFont(StandardFonts.Helvetica)); f1.flatten();
+      (await out.copyPages(ms, [0])).forEach(p => out.addPage(p));
+      // OVH-205
+      const ra = await PDFDocument.load(await X.getForm('OVH-205')), f2 = ra.getForm();
+      [['mission', $('plMission').value], ['date', X.usDate($('plDate').value)], ['pilot', pilotName()], ['time', ampm($('plTime').value)],
+       ['score', K.complete ? String(K.score) : ''], ['mitigations', $('plMit').value]].forEach(([n, v]) => set(f2, n, v));
+      FACTORS.forEach((f, i) => { const lv = K.R[f.g].lv; [1, 2, 3].forEach(l => { try { const cb = f2.getCheckBox(`f${i + 1}_${l}`); l === lv ? cb.check() : cb.uncheck(); } catch (e) {} }); });
+      if (K.complete) [['GO', 'go'], ['CAUTION', 'caution'], ['NO-GO', 'nogo']].forEach(([d, n]) => { try { const cb = f2.getCheckBox(n); d === K.decision ? cb.check() : cb.uncheck(); } catch (e) {} });
+      f2.updateFieldAppearances(await ra.embedFont(StandardFonts.Helvetica)); f2.flatten();
+      (await out.copyPages(ra, [0])).forEach(p => out.addPage(p));
+      return out.save();
+    }
+
+    // ---- Full mission plan PDF (Letter)
     async function makePdf() {
       const {PDFDocument, StandardFonts, rgb} = await X.loadPdfLib();
-      const Z = summarize(), B = S.brief, doc = await PDFDocument.create();
+      const T = texts(), Z = T.Z, K = ratings(), B = S.brief, doc = await PDFDocument.create();
       doc.setTitle('OVH-208 Mission Plan'); doc.setAuthor('Overhead UAS');
-      const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
+      const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold), mono = await doc.embedFont(StandardFonts.Courier);
       const NAVY = rgb(0.043, 0.122, 0.2), GREY = rgb(0.36, 0.42, 0.48), RED = rgb(0.78, 0.06, 0.18), LINE = rgb(0.6, 0.65, 0.7);
+      const COL = {GO: rgb(0.1, 0.5, 0.25), CAUTION: rgb(0.7, 0.4, 0), 'NO-GO': RED};
       const Wp = 612, Hp = 792, M = 44, FW = Wp - 2 * M; let page = doc.addPage([Wp, Hp]), y = Hp - M;
       let logo = null; try { logo = await doc.embedPng(await X.fetchBytes('logo.png')); } catch (e) {}
-      const T = (t, x, yy, s = 9.5, f = font, c = rgb(0, 0, 0)) => page.drawText(String(t), {x, y: yy, size: s, font: f, color: c});
+      const TX = (t, x, yy, s = 9.5, f = font, c = rgb(0, 0, 0)) => page.drawText(String(t), {x, y: yy, size: s, font: f, color: c});
+      const clean = t => String(t).replace(/[^\n\x20-\x7E -ÿ]/g, '').replace(/[^\S\n]+/g, ' ').trim();
       const wrap = (t, s, w, f = font) => { const out = []; for (const para of String(t || '').split(/\n/)) { let line = ''; for (const wd of para.split(/\s+/)) { const tt = line ? line + ' ' + wd : wd; if (f.widthOfTextAtSize(tt, s) > w && line) { out.push(line); line = wd; } else line = tt; } out.push(line); } return out; };
-      const clean = t => String(t).replace(/[^\n\x20-\x7E\u00A0-\u00FF]/g, '').replace(/[^\S\n]+/g, ' ').trim();
       const footer = () => { page.drawLine({start: {x: M, y: 40}, end: {x: Wp - M, y: 40}, thickness: 0.5, color: LINE});
-        T('Overhead UAS  ·  www.overheaduas.com  ·  (760) 527-3267', M, 28, 7.5, font, GREY); const r = 'OVH-208  ·  Rev. 11/2026'; T(r, Wp - M - font.widthOfTextAtSize(r, 7.5), 28, 7.5, font, GREY); };
+        TX('Overhead UAS  ·  www.overheaduas.com  ·  (760) 527-3267', M, 28, 7.5, font, GREY); const r = 'OVH-208  ·  Rev. 11/2026'; TX(r, Wp - M - font.widthOfTextAtSize(r, 7.5), 28, 7.5, font, GREY); };
       const need = h => { if (y - h < 56) { footer(); page = doc.addPage([Wp, Hp]); y = Hp - M; } };
-      const section = t => { need(60); y -= 6; page.drawRectangle({x: M, y: y - 15, width: FW, height: 15, color: NAVY}); T(t, M + 6, y - 11, 8.5, bold, rgb(1, 1, 1)); y -= 19; };
-      const row = (label, text, color) => { const lines = wrap(clean(text || '-'), 9.3, FW - 140); need(lines.length * 12 + 6);
-        T(label.toUpperCase(), M + 4, y - 10, 7, bold, NAVY); lines.forEach((l, i) => T(l, M + 136, y - 10 - i * 12, 9.3, font, color || rgb(0, 0, 0)));
+      const section = t => { need(60); y -= 6; page.drawRectangle({x: M, y: y - 15, width: FW, height: 15, color: NAVY}); TX(t, M + 6, y - 11, 8.5, bold, rgb(1, 1, 1)); y -= 19; };
+      const row = (label, text, color, f = font, s = 9.3) => { const lines = wrap(clean(text || '-'), s, FW - 140, f); need(lines.length * 12 + 6);
+        TX(label.toUpperCase(), M + 4, y - 10, 7, bold, NAVY); lines.forEach((l, i) => TX(l, M + 136, y - 10 - i * 12, s, f, color || rgb(0, 0, 0)));
         y -= lines.length * 12 + 6; page.drawLine({start: {x: M, y: y + 2}, end: {x: Wp - M, y: y + 2}, thickness: 0.3, color: LINE}); };
       if (logo) page.drawImage(logo, {x: Wp - M - 58, y: Hp - M - 54, width: 58, height: 58});
-      T('MISSION PLAN', M, y - 18, 20, bold, NAVY); T('OVERHEAD UAS', M, y - 32, 9, bold, RED); T('OVH-208  ·  Rev. 11/2026  ·  Created ' + X.nowStamp(), M, y - 44, 7.5, font, GREY);
-      y -= 64;
-      const pilot = (X.profile && X.profile.name) || (X.me && X.me.name) || '';
-      row('Mission', $('plMission').value); row('Pilot', pilot + (X.profile && X.profile.cert ? '  ·  Part 107 #' + X.profile.cert : ''));
-      row('Planned', `${X.usDate($('plDate').value)} at ${$('plTime').value}  ·  radius ${$('plRadius').selectedOptions[0].text}  ·  max ${$('plAlt').value} ft AGL`);
+      TX('MISSION PLAN', M, y - 18, 20, bold, NAVY); TX('OVERHEAD UAS', M, y - 32, 9, bold, RED); TX('OVH-208  ·  Rev. 11/2026  ·  Created ' + X.nowStamp(), M, y - 44, 7.5, font, GREY);
+      y -= 58;
+      if (K.complete) { const c = COL[K.decision]; page.drawRectangle({x: M, y: y - 24, width: FW, height: 24, borderColor: c, borderWidth: 1.2, color: rgb(1, 1, 1)});
+        TX(K.decision, M + 10, y - 17, 13, bold, c); TX(`Risk score ${K.score}${K.highs.length ? '  ·  HIGH: ' + K.highs.join(', ') : ''}`, M + 90, y - 16, 9.5, font, c); y -= 32; }
+      row('Mission', $('plMission').value); row('Pilot', pilotName() + (X.profile && X.profile.cert ? '  ·  Part 107 #' + X.profile.cert : ''));
+      row('Planned', `${X.usDate($('plDate').value)}  ${ampm($('plTime').value)} - ${ampm($('plEnd').value)}  ·  radius ${$('plRadius').selectedOptions[0].text}  ·  max ${$('plAlt').value} ft AGL${$('plLong').checked ? '  ·  long-line' : ''}`);
+      row('Aircraft', S.aircraft ? S.aircraft.label + (S.aircraft.why ? '  ·  ' + S.aircraft.why : '') : 'Not selected');
       row('Location', (S.address ? S.address + '  ·  ' : '') + `${S.lat}, ${S.lon}`);
       const img = await mapImage();
       if (img) { try { const im = await doc.embedJpg(img), h = FW * im.height / im.width; need(h + 8); page.drawImage(im, {x: M, y: y - h, width: FW, height: h});
-        page.drawRectangle({x: M, y: y - h, width: FW, height: h, borderColor: LINE, borderWidth: 0.6}); y -= h + 4; T('Imagery: Esri, Maxar, Earthstar Geographics. Red circle = planned flight radius.', M, y - 8, 6.8, font, GREY); y -= 12; } catch (e) {} }
+        page.drawRectangle({x: M, y: y - h, width: FW, height: h, borderColor: LINE, borderWidth: 0.6}); y -= h + 4; TX('Imagery: Esri, Maxar, Earthstar Geographics.', M, y - 8, 6.8, font, GREY); y -= 12; } catch (e) {} }
       section('AIRSPACE & RESTRICTIONS');
       row('Airspace', B.gridErr && B.clsErr ? 'Unavailable - verify in B4UFLY / LAANC app' : Z.airspace, Z.airspaceRisk === 3 ? RED : null);
       row('LAANC', Z.laanc);
@@ -300,47 +482,54 @@
       row('Airports / heliports', B.aptErr ? 'Unavailable' : apts.length ? apts.slice(0, 6).join('\n') : 'None within 5 mi');
       row('Special use airspace', B.suaErr ? 'Unavailable' : (B.sua || []).length ? (B.sua || []).map(a => `${pick(a, /^TYPE_CODE$/i)} ${pick(a, /^NAME$/i)}`).join('\n') : 'None within 3 mi');
       section('WEATHER & LIGHT');
-      row('Forecast', Z.f ? `${Z.f.shortForecast}, ${Z.f.temperature}°${Z.f.temperatureUnit}, wind ${Z.f.windDirection} ${Z.f.windSpeed}${Z.wkt !== null ? ' (~' + Z.wkt + ' kt)' : ''}${Z.pop !== null ? ', precipitation ' + Z.pop + '%' : ''}` : 'Not available for this date - check before flight');
+      row('Forecast at start', T.wx || 'Not available for this date - check before flight');
+      const av = B.avwx || {};
+      if (av.metar) row('METAR', av.metar.raw, null, mono, 8.4);
+      if (av.taf) row('TAF (' + av.taf.station + ')', av.taf.raw, null, mono, 8.4);
       if (Z.sun) row('Sun', `Civil dawn ${fmtT(Z.sun.dawn)}  ·  Sunrise ${fmtT(Z.sun.sunrise)}  ·  Sunset ${fmtT(Z.sun.sunset)}  ·  Civil dusk ${fmtT(Z.sun.dusk)}`);
+      section('RISK ASSESSMENT');
+      FACTORS.forEach(f => { const r = K.R[f.g]; row(f.name, (r.lv ? LV[r.lv] : 'Not rated') + (r.why ? '  ·  ' + r.why : ''), r.lv === 3 ? RED : null); });
+      if ($('plMit').value.trim()) row('Mitigations', $('plMit').value);
       section('HAZARDS & NOTES');
       row('Pilot notes', $('plNotes').value || 'None entered');
       section('BEFORE FLIGHT');
-      ['Airspace and TFRs re-checked in B4UFLY / LAANC app on flight day', 'LAANC authorization obtained (if controlled airspace)', 'OVH-205 Risk Assessment completed', 'OVH-201 Mission Sheet and OVH-101 Preflight Checklist'].forEach(t => {
-        need(16); page.drawRectangle({x: M + 4, y: y - 12, width: 9, height: 9, borderColor: NAVY, borderWidth: 0.8}); T(t, M + 20, y - 10.5, 9.2); y -= 16; });
-      y -= 4; wrap('Planning aid only, compiled from FAA, National Weather Service, and OpenStreetMap public data at the time shown. Data can change and may be incomplete. The remote pilot in command must verify airspace, TFRs, and NOTAMs with official sources before flight.', 7.4, FW).forEach(l => { need(10); T(l, M, y - 8, 7.4, font, GREY); y -= 10; });
+      ['Airspace and TFRs re-checked in B4UFLY / LAANC app on flight day', 'LAANC authorization obtained (if controlled airspace)', 'OVH-205 Risk Assessment signed', 'OVH-201 Mission Sheet and OVH-101 Preflight Checklist'].forEach(t => {
+        need(16); page.drawRectangle({x: M + 4, y: y - 12, width: 9, height: 9, borderColor: NAVY, borderWidth: 0.8}); TX(t, M + 20, y - 10.5, 9.2); y -= 16; });
+      y -= 4; wrap('Planning aid only, compiled from FAA, National Weather Service, Open-Meteo, NOAA, and OpenStreetMap public data at the time shown. Data can change and may be incomplete. The remote pilot in command must verify airspace, TFRs, and NOTAMs with official sources before flight.', 7.4, FW).forEach(l => { need(10); TX(l, M, y - 8, 7.4, font, GREY); y -= 10; });
       footer();
       return doc.save();
     }
 
+    // ---- actions
     const msg = (t, bad) => { $('plMsg').innerHTML = t; $('plMsg').className = 'plan-msg ' + (bad ? 'bad' : 'good'); };
-    $('plPdf').onclick = async e => {
-      if (!S.brief || S.brief.loading) return msg('Drop a pin and wait for the briefing first.', true);
-      const b = e.currentTarget; b.disabled = true; b.textContent = 'Creating…';
-      try {
-        const bytes = await makePdf(), tag = ($('plMission').value || S.address.split(',')[0] || 'Plan').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
-        const name = `OVH-208_Mission_Plan_${tag}_${X.usDate($('plDate').value).replace(/\//g, '-')}.pdf`;
-        const file = new File([bytes], name, {type: 'application/pdf'}), url = URL.createObjectURL(file);
-        msg(`<b>&#10003; Mission plan ready.</b> <a href="${url}" target="_blank" rel="noopener">Open / print</a> · <a href="#" data-dl>Save to this device</a> · <a href="#" data-share>Share</a> <span class="note" data-drive></span>`);
-        $('plMsg').querySelector('[data-dl]').onclick = ev => { ev.preventDefault(); X.saveBlob(url, name); };
-        $('plMsg').querySelector('[data-share]').onclick = async ev => { ev.preventDefault(); const r = await X.shareFile(file, 'Overhead UAS mission plan'); if (r === false) X.saveBlob(url, name); };
-        if (X.submit && X.submit.url) {
-          fetch(X.submit.url, {method: 'POST', body: JSON.stringify({token: X.submit.token, filename: name, pdf: X.toB64(bytes), folder: 'Mission Plans', quiet: true,
-            subject: 'Mission plan: ' + ($('plMission').value || S.address), lines: ['Form: OVH-208']})}).then(r => r.json())
-            .then(j => { const d = $('plMsg').querySelector('[data-drive]'); if (d) d.textContent = j.ok ? '· Saved to Overhead UAS records' : ''; }).catch(() => {});
-        }
-      } catch (x) { msg('Could not create the PDF (' + esc(x.message) + ').', true); }
-      finally { b.disabled = false; b.textContent = 'Create mission plan (PDF)'; }
-    };
+    function offer(bytes, name, label) {
+      const file = new File([bytes], name, {type: 'application/pdf'}), url = URL.createObjectURL(file);
+      msg(`<b>&#10003; ${label} ready.</b> <a href="${url}" target="_blank" rel="noopener">Open / print</a> · <a href="#" data-dl>Save to this device</a> · <a href="#" data-share>Share</a> <span class="note" data-drive></span>`);
+      $('plMsg').querySelector('[data-dl]').onclick = ev => { ev.preventDefault(); X.saveBlob(url, name); };
+      $('plMsg').querySelector('[data-share]').onclick = async ev => { ev.preventDefault(); const r = await X.shareFile(file, 'Overhead UAS ' + label.toLowerCase()); if (r === false) X.saveBlob(url, name); };
+      if (X.submit && X.submit.url) fetch(X.submit.url, {method: 'POST', body: JSON.stringify({token: X.submit.token, filename: name, pdf: X.toB64(bytes), folder: 'Mission Plans', quiet: true,
+        subject: label + ': ' + ($('plMission').value || S.address), lines: ['Form: OVH-208']})}).then(r => r.json())
+        .then(j => { const d = $('plMsg').querySelector('[data-drive]'); if (d) d.textContent = j.ok ? '· Saved to Overhead UAS records' : ''; }).catch(() => {});
+    }
+    async function run(btn, label, fn) {
+      if (!ready()) return msg('Drop a pin and wait for the briefing first.', true);
+      const t = btn.textContent; btn.disabled = true; btn.textContent = 'Creating…';
+      try { await fn(); } catch (x) { msg('Could not create the PDF (' + esc(x.message) + ').', true); } finally { btn.disabled = false; btn.textContent = t; }
+    }
+    $('plKnee').onclick = e => run(e.currentTarget, 'Kneeboard pack', async () => {
+      const K = ratings(); if (!K.complete) return msg(`Rate all 10 risk factors first (${K.rated} of 10 done).`, true);
+      offer(await kneeboard(), `Kneeboard_OVH-201_OVH-205_${fileTag()}_${X.usDate($('plDate').value).replace(/\//g, '-')}.pdf`, 'Kneeboard pack');
+    });
+    $('plPdf').onclick = e => run(e.currentTarget, 'Mission plan', async () =>
+      offer(await makePdf(), `OVH-208_Mission_Plan_${fileTag()}_${X.usDate($('plDate').value).replace(/\//g, '-')}.pdf`, 'Mission plan'));
     $('plSend').onclick = () => {
-      if (!S.brief || S.brief.loading) return msg('Drop a pin and wait for the briefing first.', true);
-      const Z = summarize(), f = Z.f;
-      const plan = {created: Date.now(), mission: $('plMission').value, date: $('plDate').value, time: $('plTime').value, lat: S.lat, lon: S.lon, address: S.address,
-        airspace: Z.airspace + (Z.laanc ? ' · ' + Z.laanc : ''), sunset: Z.sun ? hhmm(Z.sun.sunset) : '',
-        weather: f ? `${f.shortForecast}, ${f.temperature}°${f.temperatureUnit}, wind ${f.windDirection} ${f.windSpeed}${Z.pop !== null ? ', precip ' + Z.pop + '%' : ''}` : '',
-        hazards: [$('plNotes').value, ...Z.tfrs.map(t => 'TFR: ' + t.title)].filter(Boolean).join('; '),
-        risk: {wind: Z.wkt === null ? 0 : Z.wkt < 10 ? 1 : Z.wkt <= 20 ? 2 : 3, precip: Z.pop === null ? 0 : Z.pop >= 60 ? 3 : Z.pop >= 25 ? 2 : 1, airspace: Z.airspaceRisk}};
+      if (!ready()) return msg('Drop a pin and wait for the briefing first.', true);
+      const T = texts(), K = ratings();
+      const plan = {created: Date.now(), mission: $('plMission').value, date: $('plDate').value, time: $('plTime').value, end: $('plEnd').value, lat: S.lat, lon: S.lon, address: S.address,
+        airspace: T.air, sunset: T.Z.sun ? hhmm(T.Z.sun.sunset) : '', weather: T.wx, hazards: T.hz, mitigations: $('plMit').value,
+        ratings: Object.fromEntries(FACTORS.map(f => [f.g, K.R[f.g].lv])), risk: {wind: K.R.f1.lv, precip: K.R.f3.lv, airspace: K.R.f4.lv}};
       try { localStorage.setItem('ouas_plan', JSON.stringify(plan)); } catch (e) {}
-      msg('<b>&#10003; Sent.</b> Open <a href="#forms">Forms</a> → OVH-201 Mission Sheet or OVH-205 Risk Assessment and tap Fill out. The plan details fill in automatically.');
+      msg('<b>&#10003; Sent.</b> Open <a href="#forms">Forms</a> → OVH-201 Mission Sheet or OVH-205 Risk Assessment and tap Fill out. Everything from this plan fills in, ready to sign and submit.');
     };
   }
 })();

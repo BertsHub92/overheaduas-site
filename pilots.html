@@ -82,6 +82,24 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .aloft{border-collapse:collapse;margin:8px 0 4px;font-size:13.5px}
+  .aloft th,.aloft td{border:1px solid var(--line);padding:4px 9px;text-align:center}
+  .aloft th{font-size:11.5px;color:var(--muted);font-weight:600}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;background:var(--bg);border-radius:6px;padding:6px 8px;margin:4px 0;word-break:break-word}
+  .timeline{display:flex;gap:3px;overflow-x:auto;padding:2px 0 4px}
+  .tl{flex:0 0 auto;width:36px;border:0;border-radius:6px;padding:4px 0;cursor:pointer;font:11px Inter,sans-serif;display:flex;flex-direction:column;align-items:center;gap:1px;color:#fff}
+  .tl b{font-size:13px} .tl.green{background:#1b7a40} .tl.amber{background:#c77700} .tl.red{background:#c42330}
+  .tl.sel{outline:3px solid var(--text);outline-offset:1px}
+  .risk-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;margin:10px 0;color:#fff}
+  .risk-banner b{font:700 22px "Space Grotesk",sans-serif;letter-spacing:.02em}
+  .risk-banner.go{background:#1b7a40} .risk-banner.caution{background:#c77700} .risk-banner.nogo{background:#c42330}
+  .risk-banner.pending{background:var(--card);color:var(--text);border:1px dashed var(--line2)} .risk-banner.pending b{font-size:17px}
+  #plBanner .risk-banner{margin:12px 0 0;position:sticky;top:8px;z-index:5;box-shadow:var(--shadow)}
+  .rlist{display:grid;gap:8px}
+  .rrow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
+  .rname{flex:1 1 200px} .rname .note{margin-top:2px}
+  .rrow .seg span.hi{color:var(--err)} .rrow .seg input:checked+span.hi{color:#fff}
+  #plMit{width:100%;padding:10px 12px;font-size:15px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);font-family:Inter,sans-serif}
   .plan-search{display:flex;gap:8px;flex-wrap:wrap}
   .plan-search input{flex:1 1 200px;padding:11px 12px;font-size:15px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text)}
   .plan-results{display:grid;gap:4px;margin-top:8px}
@@ -355,7 +373,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 8; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 9; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -565,12 +583,12 @@
     q('#fx_remember').checked = any;
     const pl = planFor(f);
     if (pl) {
-      const PF = {mission: pl.mission, date: pl.date, time: pl.time, latitude: pl.address ? pl.address.split(',').slice(0, 3).join(',') + ' (' + pl.lat + ')' : String(pl.lat),
+      const PF = {mission: pl.mission, date: pl.date, time: pl.time, start_time: pl.time, end_time: pl.end, mitigations: pl.mitigations, latitude: pl.address ? pl.address.split(',').slice(0, 3).join(',') + ' (' + pl.lat + ')' : String(pl.lat),
         longitude: String(pl.lon), airspace: pl.airspace, sunset_time: pl.sunset, weather: pl.weather, hazards: pl.hazards};
       for (const [k, v] of Object.entries(PF)) { const el = field(k); if (el && v && !el.value) el.value = v; }
-      if (/^OVH-205/.test(f.title)) [['f1', pl.risk.wind], ['f3', pl.risk.precip], ['f4', pl.risk.airspace]].forEach(([g, lv]) => { const r = lv && q(`input[data-c="${g}_${lv}"]`); if (r) r.checked = true; });
+      if (/^OVH-205/.test(f.title)) Object.entries(pl.ratings || {f1: pl.risk.wind, f3: pl.risk.precip, f4: pl.risk.airspace}).forEach(([g, lv]) => { const r = lv && q(`input[data-c="${g}_${lv}"]`); if (r) r.checked = true; });
       const nb = document.createElement('p'); nb.className = 'note plan-note';
-      nb.innerHTML = `Filled from your mission plan${pl.mission ? ' "' + esc(pl.mission) + '"' : ''}. Check every item.` + (/^OVH-205/.test(f.title) ? ' Wind, precipitation, and airspace were pre-rated.' : '');
+      nb.innerHTML = `Filled from your mission plan${pl.mission ? ' "' + esc(pl.mission) + '"' : ''}. Check every item.` + (/^OVH-205/.test(f.title) ? (pl.ratings ? ' All 10 factors were rated in Mission Planning.' : ' Wind, precipitation, and airspace were pre-rated.') : '');
       box.prepend(nb); setTimeout(() => box.dispatchEvent(new Event('change')), 0);
     }
     if (PROFILE) {
@@ -1494,7 +1512,8 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     if (!v.innerHTML) v.innerHTML = '<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div><p class="note">Loading map…</p>';
     plannerPromise ||= Promise.all([loadAsset('link', {rel: 'stylesheet', href: 'vendor/leaflet/leaflet.css'}), loadAsset('script', {src: 'vendor/leaflet/leaflet.js'})])
       .then(() => loadAsset('script', {src: 'planner.js?v=' + PAGE_VERSION}));
-    plannerPromise.then(() => window.OUAS_PLANNER.mount(v, {submit: manifest.submit, me: ME, profile: PROFILE, esc, usDate, toB64, loadPdfLib, fetchBytes, saveBlob, shareFile, nowStamp}))
+    plannerPromise.then(() => window.OUAS_PLANNER.mount(v, {submit: manifest.submit, me: ME, profile: PROFILE, mydocs: MYDOCS, esc, usDate, toB64, loadPdfLib, fetchBytes, saveBlob, shareFile, nowStamp,
+      getForm: async prefix => { const f = manifest.forms.find(x => x.title.startsWith(prefix)); if (!f) throw new Error(prefix + ' not found'); return open(K, await fetchBytes('portal/' + f.id + '.bin'), f.id); }}))
       .catch(() => { v.innerHTML = '<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div><p class="err-msg">The map could not load. Check your connection and try again.</p>'; plannerPromise = null; });
   }
   function planFor(f) {

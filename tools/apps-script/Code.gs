@@ -16,7 +16,7 @@
  * FAA certificate, drone registrations, and other certificates. Pilots see
  * only their own folder; admins see all.
  *
- * Mission Planning: looks up FAA TFRs near a location (plan.tfr).
+ * Mission Planning: looks up FAA TFRs (plan.tfr) and METAR / TAF / Kp (plan.wx).
  *
  * Setup: see the instructions Claude provided. Deploy as a Web app,
  * "Execute as: Me", "Who has access: Anyone".
@@ -161,6 +161,7 @@ function addAircraft(ss, a, by) {
 function handleAction(d) {
   if (/^(me|pilot|pilots|doc)\./.test(d.action)) return pilotAction(d);
   if (d.action === 'plan.tfr') return planTfr(d);
+  if (d.action === 'plan.wx') return planWx(d);
   var ss = maintBook(), lock = LockService.getScriptLock();
   if (d.action === 'aircraft.list') return {ok: true, aircraft: aircraftList(ss)};
   if (d.action === 'aircraft.add') {
@@ -380,4 +381,38 @@ function pointInRing(x, y, ring) {
 function haversineMi(a, b, c, d) {
   var r = Math.PI / 180, x = Math.pow(Math.sin((c - a) * r / 2), 2) + Math.cos(a * r) * Math.cos(c * r) * Math.pow(Math.sin((d - b) * r / 2), 2);
   return 7917.6 * Math.asin(Math.sqrt(x));
+}
+
+
+// ===================== Mission Planning: METAR, TAF, Kp =====================
+function fetchJson(url, cacheKey, secs) {
+  var cache = CacheService.getScriptCache(), hit = cacheKey ? cache.get(cacheKey) : null;
+  if (hit) return JSON.parse(hit);
+  var res = UrlFetchApp.fetch(url, {muteHttpExceptions: true, headers: {Accept: 'application/json'}});
+  if (res.getResponseCode() !== 200) return null;
+  var txt = res.getContentText(); if (!txt) return null;
+  var data = JSON.parse(txt);
+  if (cacheKey && txt.length < 95000) cache.put(cacheKey, txt, secs || 600);
+  return data;
+}
+function planWx(d) {
+  var lat = Number(d.lat), lon = Number(d.lon), st = String(d.station || '').replace(/[^A-Z0-9]/gi, '').toUpperCase(), out = {ok: true};
+  if (!isFinite(lat) || !isFinite(lon)) return {ok: false, error: 'bad location'};
+  try {
+    var m = st ? fetchJson('https://aviationweather.gov/api/data/metar?format=json&hours=2&ids=' + st, 'metar_' + st, 600) : null;
+    if (m && m.length) out.metar = {station: m[0].icaoId || st, raw: m[0].rawOb || m[0].raw_text || ''};
+  } catch (e) {}
+  try {
+    var b = [(lat - 0.6).toFixed(2), (lon - 0.7).toFixed(2), (lat + 0.6).toFixed(2), (lon + 0.7).toFixed(2)].join(',');
+    var tafs = fetchJson('https://aviationweather.gov/api/data/taf?format=json&bbox=' + b, 'taf_' + b, 1200) || [];
+    var best = null;
+    tafs.forEach(function (x) { var dm = haversineMi(lat, lon, Number(x.lat), Number(x.lon)); if (isFinite(dm) && (!best || dm < best.miles)) best = {station: x.icaoId, raw: x.rawTAF || x.raw_text || '', miles: Math.round(dm)}; });
+    if (best) out.taf = best;
+  } catch (e) {}
+  try {
+    var kp = fetchJson('https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json', 'kp', 1800) || [];
+    out.kp = kp.slice(1).map(function (r) { return {time: String(r[0]).replace(' ', 'T') + 'Z', kp: Math.round(Number(r[1]) * 10) / 10, kind: r[2]}; })
+      .filter(function (r) { return new Date(r.time) > new Date(Date.now() - 6 * 36e5); }).slice(0, 30);
+  } catch (e) {}
+  return out;
 }
