@@ -151,7 +151,7 @@
   /* ---- calmer layout ---- */
   body{font-size:16px}
   header{background:var(--panel)}
-  main{padding:28px 16px 64px;max-width:760px}
+  main{padding:24px 12px 64px;max-width:760px}
   h1{font-size:clamp(26px,5vw,34px);margin:8px 0 6px}
   .card{margin-top:22px;padding:22px;box-shadow:var(--shadow)}
   .theme-btn{background:none;border:1px solid var(--line2);color:var(--muted);border-radius:999px;padding:7px 12px;font:500 13px Inter,sans-serif;cursor:pointer}
@@ -179,6 +179,22 @@
   #files.card{background:none;border:0;box-shadow:none;padding:0;margin-top:18px}
   #files .top{padding:0 2px}
   .form > .fill{flex:0 0 auto;width:calc(100% + 32px)}
+  /* ---- two-column tiles ---- */
+  .forms{grid-template-columns:1fr 1fr;gap:10px}
+  .group-title{grid-column:1/-1}
+  .form{flex-direction:column;flex-wrap:nowrap;align-items:stretch;padding:14px 13px 13px;gap:10px}
+  .form-main{flex:none}
+  .form .doc{display:none}
+  .form h3{font-size:15.5px;line-height:1.25}
+  .form p{font-size:13.5px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .form .tags .tag.grey{display:none}
+  .form .actions{padding-left:0;margin-top:auto;flex-direction:column;gap:7px}
+  .form .actions .btn{width:100%;padding:9px 10px;font-size:13.5px}
+  .form.open{grid-column:1/-1}
+  .form.open .actions{flex-direction:row;flex-wrap:wrap}
+  .form.open .actions .btn{width:auto;flex:1 1 auto}
+  .form.open p{display:block}
+  .form.open > .fill{width:calc(100% + 26px);margin:6px -13px -13px;padding:18px 14px}
 </style>
 </head>
 <body>
@@ -291,6 +307,7 @@
       const tags = f.app ? ['Online only'] : f.fill ? ['Fill & sign online', 'Printable'] : ['Printable'];
       el.querySelector('.tags').innerHTML = tags.map((t, i) => `<span class="tag${i ? ' grey' : ''}">${esc(t)}</span>`).join('');
       if (f.fill) { el.querySelector('[data-act=print]').textContent = 'Print blank'; el.querySelector('[data-act=download]').textContent = 'Download blank'; }
+      el.querySelector('[data-act=fill]').textContent = 'Fill out';
       if (f.app) { renderApp(f, el); list.appendChild(el); continue; }
       if (f.fill) { const fb = el.querySelector('[data-act=fill]'); fb.hidden = false; fb.onclick = () => openFill(f, el); }
       el.querySelector('[data-act=download]').onclick = e => getFile(f, 'download', e.currentTarget);
@@ -298,6 +315,12 @@
       list.appendChild(el);
     }
     $('updated').textContent = 'Forms last updated ' + manifest.updated + '.';
+    const sync = () => list.querySelectorAll('.form').forEach(c => {
+      const was = c.classList.contains('open'), now = !!c.querySelector(':scope > .fill');
+      c.classList.toggle('open', now);
+      if (now && !was) setTimeout(() => c.scrollIntoView({behavior: 'smooth', block: 'start'}), 30);
+    });
+    new MutationObserver(sync).observe(list, {childList: true, subtree: true});
   }
 
   async function getFile(f, mode, btn) {
@@ -691,7 +714,7 @@
 
   function renderApp(f, el) {
     const acts = el.querySelector('.actions');
-    acts.innerHTML = `<button class="btn btn-primary" data-m="log">Log maintenance</button>
+    acts.innerHTML = `<button class="btn btn-primary" data-m="log">Log entry</button>
       <button class="btn btn-ghost" data-m="aircraft">Aircraft</button>
       <button class="btn btn-ghost" data-m="history">Print history</button>`;
     acts.querySelector('[data-m=log]').onclick = () => openMaint(f, el);
