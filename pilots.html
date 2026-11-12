@@ -94,9 +94,7 @@
   .qq.invalid{border-color:var(--err)} .qq.missed{border-color:var(--err);background:rgba(196,35,48,.05)}
   .admin-train{margin-top:22px;border-left:3px solid var(--blue)}
   .tmatrix td,.tmatrix th{font-size:13px;white-space:nowrap}
-  .quiz-tools{display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-bottom:12px}
-  @media (max-width:700px){.quiz-tools{grid-template-columns:1fr}}
-  .qt{border:1px dashed var(--line2);border-radius:10px;padding:12px}
+  .qt{border:1px dashed var(--line2);border-radius:10px;padding:12px;margin-bottom:12px} .qt summary{cursor:pointer}
   .qt textarea,.qcard textarea,.pcard textarea[data-c]{width:100%;padding:9px 11px;font:14.5px Inter,sans-serif;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);margin-top:6px}
   .pcard select[data-c],.qt select{padding:9px 10px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);font:14.5px Inter,sans-serif}
   .pcard select[data-c]{width:100%}
@@ -423,7 +421,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 12; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 13; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1787,23 +1785,6 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     }
     return out.filter(x => x.options.length >= 2);
   }
-  const claudePrompt = (title, n) => `Write a ${n}-question multiple-choice quiz for commercial drone pilots, based only on the training material I paste or attach below${title ? ' (course: "' + title + '")' : ''}.
-Rules: each question has exactly 4 options (A-D) with one correct answer; make the wrong options plausible; no "all/none of the above"; vary which letter is correct; do not add facts that are not in the material.
-Use exactly this format and nothing else:
-
-1. Question text?
-A) Option
-B) Option
-C) Option
-D) Option
-Answer: B
-Explanation: One short sentence.
-
-2. ...
-
-Material:
-`;
-
   async function openCourseEdit(id) {
     const v = $('trainingView');
     if (!ME || ME.role !== 'admin') { location.hash = '#training'; return; }
@@ -1833,15 +1814,9 @@ Material:
         <div><label>Repeat</label><select data-c="repeat">${['Once', 'Yearly'].map(x => `<option${x === c.repeat ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
         <div><label>Pass score (%)</label><input type="number" data-c="pass" min="0" max="100" value="${esc(c.pass)}"></div></div></div>
       <div class="pcard"><div class="pcard-top"><h4>Quiz (<span data-qn>${quiz.length}</span> questions)</h4></div>
-        <div class="quiz-tools">
-          <div class="qt"><b>Generate with AI</b><p class="note">Uses the saved slides PDF and/or text you paste here (for YouTube: open the video → …more → Show transcript → copy). About $0.05–0.25 per quiz.</p>
-            <textarea data-c="aiText" rows="3" placeholder="Paste a video transcript or notes (optional if slides are saved)"></textarea>
-            <div class="fill-actions"><select data-c="aiCount"><option>5</option><option selected>10</option><option>15</option></select><button class="btn btn-primary sm" data-x="ai">&#10024; Generate questions</button><span class="save-msg" data-m="ai"></span></div></div>
-          <div class="qt"><b>Free: write it in Claude.ai</b><p class="note">Copy the prompt, paste it into a Claude.ai chat with the transcript or slides, then paste Claude's quiz below.</p>
-            <div class="fill-actions"><button class="btn btn-ghost sm" data-x="copy">Copy prompt for Claude.ai</button><span class="save-msg" data-m="copy"></span></div>
-            <textarea data-c="paste" rows="3" placeholder="Paste a quiz here (1. Question / A) … / Answer: B)"></textarea>
-            <div class="fill-actions"><button class="btn btn-ghost sm" data-x="import">Add pasted questions</button><span class="save-msg" data-m="import"></span></div></div>
-        </div>
+        <details class="qt"><summary><b>Paste questions in bulk (optional)</b></summary><p class="note">Type or paste questions in this format, then tap Add. Or just use "+ Add question" below.</p>
+            <textarea data-c="paste" rows="5" placeholder="1. Question?&#10;A) Option&#10;B) Option&#10;C) Option&#10;D) Option&#10;Answer: B"></textarea>
+            <div class="fill-actions"><button class="btn btn-ghost sm" data-x="import">Add pasted questions</button><span class="save-msg" data-m="import"></span></div></details>
         <div class="qedit"></div>
         <div class="fill-actions"><button class="btn btn-ghost sm" data-x="addq">+ Add question</button>${quiz.length ? '<button class="btn btn-ghost sm" data-x="clearq">Remove all questions</button>' : ''}</div></div>
       <div class="pcard"><div class="fill-actions"><button class="btn btn-primary" data-x="save">Save course</button>${id !== 'new' ? '<button class="btn btn-ghost" data-x="del">Delete course</button>' : ''}<span class="save-msg" data-m="save"></span></div>
@@ -1863,21 +1838,9 @@ Material:
       if (f && !/\.pdf$/i.test(f.name)) { alert('Please save the PowerPoint as a PDF first (File → Save As → PDF), then choose the PDF.'); e.target.value = ''; q('.filepick span').textContent = 'Choose slides PDF'; } };
     q('[data-x=addq]').onclick = () => { sync(); quiz.push({question: '', options: ['', '', '', ''], answer: 0, explanation: ''}); drawQ(); };
     if (q('[data-x=clearq]')) q('[data-x=clearq]').onclick = () => { if (confirm('Remove all questions?')) { quiz = []; drawQ(); } };
-    q('[data-x=copy]').onclick = async () => { const t = claudePrompt(q('[data-c=title]').value.trim(), q('[data-c=aiCount]').value);
-      try { await navigator.clipboard.writeText(t); m('copy', 'Copied. Paste it into claude.ai with your material.'); } catch (e) { q('[data-c=paste]').value = t; m('copy', 'Copy the prompt from the box below.'); } };
     q('[data-x=import]').onclick = () => { sync(); const add = parseQuizText(q('[data-c=paste]').value);
       if (!add.length) return m('import', 'No questions found. Check the format.', true);
       quiz = quiz.concat(add.map(x => ({...x, options: x.options.concat(['', '', '', '']).slice(0, Math.max(4, x.options.length))}))); drawQ(); q('[data-c=paste]').value = ''; m('import', `Added ${add.length} questions.`); };
-    q('[data-x=ai]').onclick = async e => {
-      const b = e.currentTarget, text = q('[data-c=aiText]').value.trim();
-      if (!text && (!c.slides || id === 'new')) return m('ai', 'Save the course with a slides PDF first, or paste a transcript.', true);
-      if (quiz.length && !confirm('Replace the current questions with AI-generated ones?')) return;
-      b.disabled = true; b.textContent = 'Writing questions… (up to a minute)'; m('ai', '');
-      try { const r = await papi('train.ai', {course: id === 'new' ? '' : id, text, title: q('[data-c=title]').value.trim(), count: +q('[data-c=aiCount]').value});
-        quiz = r.questions.map(x => ({question: x.question, options: x.options.concat(['', '', '', '']).slice(0, Math.max(4, x.options.length)), answer: x.answer, explanation: x.explanation || ''}));
-        drawQ(); m('ai', `Added ${quiz.length} questions. Review them, then Save course.`); }
-      catch (x) { m('ai', x.message, true); } finally { b.disabled = false; b.innerHTML = '&#10024; Generate questions'; }
-    };
     q('[data-x=save]').onclick = async e => {
       sync(); const val = k => (q(`[data-c=${k}]`) || {}).value; const b = e.currentTarget;
       if (!val('title').trim()) return m('save', 'Enter a title', true);

@@ -24,8 +24,7 @@
  *
  * Training: admins create courses (slides PDF, video / link, quiz); pilots
  * study, take the quiz (graded here), and sign; a certificate is filed in the
- * pilot's folder. Optional AI quiz writer uses the Claude API with an
- * ANTHROPIC_API_KEY saved in Script Properties (never in this code).
+ * pilot's folder.
  *
  * Setup: see the instructions Claude provided. Deploy as a Web app,
  * "Execute as: Me", "Who has access: Anyone".
@@ -614,44 +613,5 @@ function trainAction(d) {
     ss.getSheetByName('Documents').appendRow([file.getId(), me.id, 'Other certificate', clean('Training: ' + c['Title'], 120), '', '', until ? fmt(until) : '', file.getName(), now, clean(pname, 80), 'Active']);
     return {ok: true, passed: true, score: score, pass: pass, certificate: file.getId(), until: until ? fmt(until) : ''};
   }
-  if (d.action === 'train.ai') { adminOnly(); return aiQuiz(d, C); }
   return {ok: false, error: 'unknown action'};
-}
-
-// ----- AI quiz writer (Claude API). Needs ANTHROPIC_API_KEY in Project Settings > Script Properties.
-function aiQuiz(d, C) {
-  var key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
-  if (!key) return {ok: false, error: 'AI quiz writer is not set up yet: add ANTHROPIC_API_KEY in Apps Script Project Settings > Script Properties'};
-  var n = Math.max(3, Math.min(20, Number(d.count) || 10)), content = [], text = String(d.text || '').slice(0, 150000);
-  var fileId = d.slidesId || '';
-  if (!fileId && d.course) { var r = findRow(C, 'Course ID', String(d.course)); if (r) fileId = r.obj['Slides file ID'] || ''; }
-  if (fileId) {
-    var bl = DriveApp.getFileById(String(fileId)).getBlob();
-    if (bl.getBytes().length > 30 * 1024 * 1024) return {ok: false, error: 'slides PDF is too large for the AI writer (30 MB max)'};
-    content.push({type: 'document', source: {type: 'base64', media_type: 'application/pdf', data: Utilities.base64Encode(bl.getBytes())}});
-  }
-  if (!fileId && text.length < 200) return {ok: false, error: 'Add the training material first: upload the slides PDF or paste the video transcript / notes'};
-  content.push({type: 'text', text:
-    (text ? 'Training material (transcript or notes):\n<material>\n' + text + '\n</material>\n\n' : '') +
-    'You write quizzes for Overhead UAS, a commercial drone (FAA Part 107) company. Course: "' + String(d.title || '').slice(0, 200) + '".\n' +
-    'Write exactly ' + n + ' multiple-choice questions that check a pilot understood the important points of the material above' + (fileId ? ' (the attached slides' + (text ? ' and the notes' : '') + ')' : '') + '. ' +
-    'Base every question only on the material - do not add facts it does not contain. Each question has exactly 4 options with one correct answer; ' +
-    'make the wrong options plausible, avoid "all of the above" / "none of the above", and vary the position of the correct answer. ' +
-    '"answer" is the 0-based index of the correct option. "explanation" is one short sentence saying why it is correct.'});
-  var schema = {type: 'object', additionalProperties: false, required: ['questions'], properties: {questions: {type: 'array', items: {type: 'object', additionalProperties: false,
-    required: ['question', 'options', 'answer', 'explanation'], properties: {question: {type: 'string'}, options: {type: 'array', items: {type: 'string'}}, answer: {type: 'integer'}, explanation: {type: 'string'}}}}}};
-  var res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    headers: {'x-api-key': key, 'anthropic-version': '2026-10-21', 'anthropic-beta': 'server-side-fallback-2026-07-01'},
-    payload: JSON.stringify({model: 'claude-opus-5-5', max_tokens: 16000, fallbacks: 'default',
-      output_config: {effort: 'low', format: {type: 'json_schema', schema: schema}},
-      messages: [{role: 'user', content: content}]})});
-  var code = res.getResponseCode(), j = {};
-  try { j = JSON.parse(res.getContentText()); } catch (e) {}
-  if (code !== 200) return {ok: false, error: 'AI service error ' + code + (j.error && j.error.message ? ': ' + j.error.message : '')};
-  if (j.stop_reason === 'refusal') return {ok: false, error: 'The AI declined to write this quiz. Write the questions manually.'};
-  if (j.stop_reason === 'max_tokens') return {ok: false, error: 'The AI ran out of room. Try fewer questions or shorter material.'};
-  var out = (j.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('');
-  var qs; try { qs = JSON.parse(out).questions || []; } catch (e) { return {ok: false, error: 'The AI reply could not be read. Try again.'}; }
-  qs = qs.filter(function (q) { return q.question && q.options && q.options.length >= 2 && q.answer >= 0 && q.answer < q.options.length; });
-  return {ok: true, questions: qs, usage: j.usage || {}};
 }
