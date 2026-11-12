@@ -5,7 +5,7 @@
  * sheets, incident reports), then:
  *   1. saves the PDF to Google Drive: "Overhead UAS Records/<form type>/<YYYY-MM>/"
  *   2. emails it to Overhead UAS
- *   3. emails a copy to the client (service agreements, if an email was entered)
+ *   3. emails a copy to the client / signer if an email was entered
  *
  * Also runs the OVH-204 Maintenance & Repair Log (Google Sheet
  * "Overhead UAS Maintenance Log"): aircraft list, log entries, battery
@@ -49,7 +49,7 @@ function doPost(e) {
       'Saved to Google Drive: ' + file.getUrl()
     ];
     var subject = data.subject ? String(data.subject).slice(0, 200) : 'Signed agreement: ' + (s.client || name);
-    GmailApp.sendEmail(OFFICE_EMAIL, subject, lines.join('\n'),
+    if (!data.quiet) GmailApp.sendEmail(OFFICE_EMAIL, subject, lines.join('\n'),
       {attachments: [blob], name: 'Overhead UAS Pilot Portal'});
 
     // 3. Copy to client
@@ -64,7 +64,16 @@ function doPost(e) {
         {attachments: [blob], name: 'Overhead UAS', replyTo: OFFICE_EMAIL});
       sentClient = true;
     }
-    return reply({ok: true, sentClient: sentClient});
+    // 4. Copy to the person who signed (property permission, releases, quotes)
+    var copyTo = String(data.copyTo || '').trim();
+    if (!sentClient && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(copyTo)) {
+      var msg = String(data.copyMessage || 'Attached is a copy of your signed document from Overhead UAS for your records.').slice(0, 3000);
+      GmailApp.sendEmail(copyTo, String(data.copySubject || 'Your Overhead UAS document').slice(0, 200),
+        msg + '\n\nQuestions? Call or text (760) 527-3267 or reply to this email.\n\nRespectfully,\nOverhead UAS\nwww.overheaduas.com',
+        {attachments: [blob], name: 'Overhead UAS', replyTo: OFFICE_EMAIL});
+      sentClient = true;
+    }
+    return reply({ok: true, sentClient: sentClient, quiet: !!data.quiet});
   } catch (err) {
     return reply({ok: false, error: String(err)});
   }

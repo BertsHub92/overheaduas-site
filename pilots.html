@@ -77,6 +77,18 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .rgrid{display:grid;grid-template-columns:1fr;gap:6px;margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+  .rgrid .radio-label{font-weight:600;color:var(--text);font-size:14px}
+  .rgrid label{font-size:14px}
+  .rgrid .lvl2{color:var(--err)}
+  @media (min-width:640px){.rgrid{grid-template-columns:1.1fr 1fr 1fr 1fr;align-items:center}}
+  .livebox{margin:10px 0 4px;padding:12px 14px;border-radius:10px;border:1px solid var(--line2);background:var(--card);font-size:15px}
+  .livebox.go{border-color:var(--ok);color:var(--ok)} .livebox.caution{border-color:#c77700;color:#a86400} .livebox.nogo{border-color:var(--err);color:var(--err)}
+  .qlines{display:grid;gap:8px}
+  .qline{display:grid;grid-template-columns:2.4fr .9fr .9fr .9fr;gap:8px;align-items:center}
+  .qline input{width:100%;padding:10px;font-size:14.5px}
+  .qamt{text-align:right;font-weight:600;font-size:14px}
+  @media (max-width:600px){.qline{grid-template-columns:1fr 1fr 1fr}.qline [data-n$=_desc]{grid-column:1/-1}}
   .form > .fill{flex-basis:100%}
   .m-log .radios{flex-direction:column;align-items:flex-start;gap:10px}
   .checklist{display:grid;gap:8px}
@@ -236,7 +248,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 2;
+  const PAGE_VERSION = 3;
   (() => {
     const btn = document.getElementById('themeBtn');
     const apply = t => { document.documentElement.dataset.theme = t; btn.textContent = t === 'dark' ? 'Light mode' : 'Dark mode'; };
@@ -372,6 +384,14 @@
     let html = '';
     for (const sec of F.sections) {
       if (sec.title) html += `<h4>${esc(sec.title)}</h4>`;
+      for (const rg of (sec.radios || [])) {
+        html += `<div class="radios rgrid" data-group="${rg.group}"><span class="radio-label">${esc(rg.l)}${(F.requireGroups || []).includes(rg.group) ? ' <span class="req">*</span>' : ''}</span>` +
+          rg.options.map((o, i) => `<label class="lvl${i}"><input type="radio" name="r_${rg.group}" data-c="${o.c}" data-score="${i + 1}">${esc(o.l)}</label>`).join('') + '</div>';
+      }
+      if (sec.lines) {
+        html += `<div class="qlines" data-max="${sec.lines.max}" data-prefix="${sec.lines.prefix}"></div><button type="button" class="btn btn-ghost" data-addline style="margin-top:8px">+ Add line</button>`;
+      }
+      if (sec.live) html += `<div class="livebox" data-live="${sec.live}"></div>`;
       if (sec.radio) {
         html += `<div class="radios" data-group="${sec.radio.group}"><span class="radio-label">${esc(sec.radio.l)}${(F.requireGroups || []).includes(sec.radio.group) ? ' <span class="req">*</span>' : ''}</span>` +
           sec.radio.options.map(o => `<label><input type="radio" name="r_${sec.radio.group}" data-c="${o.c}">${esc(o.l)}</label>`).join('') + '</div>';
@@ -434,6 +454,38 @@
       if (a && b) { if (!b.value) b.value = a.value; a.addEventListener('input', () => { if (!b.dataset.touched) b.value = a.value; }); b.addEventListener('input', () => b.dataset.touched = 1); }
     });
     box.querySelectorAll('[data-auto]').forEach(t => t.addEventListener('input', () => { const c = q(`[data-c="${t.dataset.auto}"]`); if (c) c.checked = !!t.value.trim(); }));
+    // quote line items
+    const ql = q('.qlines');
+    if (ql) {
+      const pre = ql.dataset.prefix, max = +ql.dataset.max;
+      const addLine = () => {
+        const n = ql.children.length + 1; if (n > max) return;
+        const r = document.createElement('div'); r.className = 'qline';
+        r.innerHTML = `<input type="text" data-n="${pre}${n}_desc" placeholder="Line ${n}: description">
+          <input type="number" data-n="${pre}${n}_qty" placeholder="Qty / hrs" min="0" step="0.25" inputmode="decimal">
+          <input type="number" data-n="${pre}${n}_rate" placeholder="Rate $" min="0" step="0.01" inputmode="decimal">
+          <span class="qamt" data-amt="${n}">$0.00</span>`;
+        ql.appendChild(r); if (n >= max) q('[data-addline]').hidden = true;
+      };
+      for (let i = 0; i < 3; i++) addLine();
+      q('[data-addline]').onclick = () => { addLine(); live(); };
+    }
+    const live = () => {
+      box.querySelectorAll('[data-live]').forEach(el => {
+        const V = pdfValues(f, box);
+        if (el.dataset.live === 'risk') {
+          const RR = V._risk;
+          el.className = 'livebox ' + (RR.decision === 'GO' ? 'go' : RR.decision === 'CAUTION' ? 'caution' : RR.decision ? 'nogo' : '');
+          el.innerHTML = RR.answered < RR.total ? `Score: <b>${RR.score || '–'}</b> · ${RR.answered} of ${RR.total} factors rated`
+            : `Score: <b>${RR.score}</b> · <b>${RR.decision}</b>${RR.hardStop ? ' (HIGH in weather, airspace, or pilot)' : ''}`;
+        } else if (el.dataset.live === 'quote') {
+          el.className = 'livebox';
+          el.innerHTML = `Subtotal <b>$${V.subtotal || '0.00'}</b> · Total <b>$${V.total || '0.00'}</b>`;
+          box.querySelectorAll('[data-amt]').forEach(a => a.textContent = '$' + (V[`${ql.dataset.prefix}${a.dataset.amt}_amt`] || '0.00'));
+        }
+      });
+    };
+    box.addEventListener('input', live); box.addEventListener('change', live); live();
     box.addEventListener('input', e => e.target.classList.remove('invalid'));
     box.addEventListener('change', e => { if (e.target.dataset.c) e.target.closest('[data-group]')?.classList.remove('invalid'); });
 
@@ -536,6 +588,26 @@
       if (i.dataset.t === 'money' && x) x = Number(x).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
       v[i.dataset.n] = x;
     });
+    const money = x => x.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const num = x => parseFloat(String(x || '').replace(/[^0-9.\-]/g, '')) || 0;
+    if (f.fill.risk) {
+      const RK = f.fill.risk; let score = 0, answered = 0, hardStop = false;
+      RK.groups.forEach(g => { const c = box.querySelector(`[data-group="${g}"] input:checked`); if (c) { answered++; score += +c.dataset.score; if (+c.dataset.score === 3 && RK.hard.includes(g)) hardStop = true; } });
+      const decision = answered < RK.groups.length ? '' : (hardStop || score >= 23) ? 'NO-GO' : score >= 16 ? 'CAUTION' : 'GO';
+      v._risk = {score, answered, total: RK.groups.length, decision, hardStop};
+      if (answered === RK.groups.length) { v[RK.scoreField] = String(score); v.decision = decision; }
+    }
+    if (f.fill.quote) {
+      const Q = f.fill.quote; let sub = 0;
+      for (let n = 1; n <= Q.max; n++) {
+        const qty = num(v[`${Q.prefix}${n}_qty`]), rate = num(v[`${Q.prefix}${n}_rate`]);
+        if (v[`${Q.prefix}${n}_rate`]) v[`${Q.prefix}${n}_rate`] = money(rate);
+        if (qty && rate) { v[`${Q.prefix}${n}_amt`] = money(qty * rate); sub += qty * rate; }
+      }
+      const t = sub + num(v.travel) - num(v.discount) + num(v.tax);
+      v.subtotal = sub ? money(sub) : ''; v.total = (sub || t) ? money(t) : '';
+      ['travel', 'discount', 'tax', 'deposit'].forEach(k => { if (v[k]) v[k] = money(num(v[k])); });
+    }
     for (const d of (f.fill.derive || [])) {
       if (d.sig) { const s = box._sigs[d.sig]; v[d.to] = s ? usDate(s.date) : ''; continue; }
       if (d.first && v[d.first]) { v[d.to] = v[d.first]; continue; }
@@ -546,7 +618,7 @@
 
   function fileName(f, box) {
     const v = pdfValues(f, box);
-    const client = (v.company || v.client_name || v.client_company || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const client = ((f.fill.fileTag && v[f.fill.fileTag]) || v.company || v.client_name || v.client_company || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
     return f.filename.replace(/\.pdf$/i, '') + (client ? '_' + client : '');
   }
 
@@ -560,6 +632,7 @@
     const lined = Object.fromEntries((f.fill.lined || []).map(l => [l.field, l]));
     const linedDraw = [];
     for (const [n, v] of Object.entries(pdfValues(f, box))) {
+      if (n.startsWith('_')) continue;
       if (lined[n] && v) { linedDraw.push([lined[n], v]); continue; }
       try { const t = form.getTextField(n); t.setMaxLength(undefined); t.setText(v); } catch (e) {}
     }
@@ -579,6 +652,7 @@
       }
     }
     box.querySelectorAll('[data-c]').forEach(c => { try { const cb = form.getCheckBox(c.dataset.c); c.checked ? cb.check() : cb.uncheck(); } catch (e) {} });
+    if (f.fill.risk) { const d = pdfValues(f, box)._risk.decision, m = f.fill.risk.boxes; Object.entries(m).forEach(([k, nm]) => { try { const cb = form.getCheckBox(nm); k === d ? cb.check() : cb.uncheck(); } catch (e) {} }); }
     let docId = '';
     const pages = doc.getPages(), parts = [];
     if (signed) docId = 'OUAS-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -656,8 +730,10 @@
       const E = f.fill.email || {}, V = pdfValues(f, box);
       V.services = [...box.querySelectorAll('[data-group=services] [data-c]:checked')].map(c => c.parentElement.textContent.trim().replace(/:$/, '') === 'Other' ? 'Other: ' + val('svc_other_text') : c.parentElement.textContent.trim()).join(', ');
       box.querySelectorAll('.radios').forEach(g => { const c = g.querySelector('[data-c]:checked'); V['radio_' + g.dataset.group] = c ? c.parentElement.textContent.trim() : ''; });
+      const fillMsg = t => String(t || '').replace(/\{(\w+)\}/g, (_, k) => V[k] || '');
       const fillT = t => { const out = String(t || '').replace(/\{(\w+)\}/g, (_, k) => V[k] || '').replace(/\s+/g, ' ').trim(); return /[A-Za-z0-9]/.test(out) ? out : '-'; };
       const clientEmail = E.clientCopy ? val('client_email') : '';
+      const copyTo = E.copyField ? val(E.copyField) : '', shownCopy = clientEmail || copyTo;
       const docLabel = f.fill.docLabel || 'form';
       let sent = null, err = '';
       const S = f.fill.submit;
@@ -665,6 +741,8 @@
         try {
           const res = await fetch(S.url, {method: 'POST', body: JSON.stringify({
             token: S.token, filename: name, pdf: toB64(bytes), clientEmail, docId,
+            quiet: !!(E.emailOnly && !E.emailOnly.includes(V.decision)),
+            copyTo, copySubject: fillT(E.copySubject || ''), copyMessage: fillMsg(E.copyMessage || ''),
             subject: fillT(E.subject || f.title), folder: E.folder || f.title, intro: E.intro || '',
             lines: (E.lines || []).map(([lab, t]) => `${lab}: ${fillT(t).slice(0, 600)}`),
             summary: {client: V.client_company, clientName: V.client_name, site: V.site_address, dates: V.flight_dates, services: V.services, cost: V.job_cost, pilot: V.pilot_name}
@@ -676,8 +754,8 @@
       box.querySelector('.fill-actions').hidden = true;
       doneEl.hidden = false;
       doneEl.innerHTML = sent
-        ? `<p class="ok-msg"><b>&#10003; Signed ${esc(docLabel)} submitted.</b> Emailed to Overhead UAS${sent.sentClient ? ' and a copy to ' + esc(clientEmail) : ''}, and saved for safe keeping.</p>`
-        : `<p class="err-msg"><b>The ${esc(docLabel)} is signed, but it couldn't be emailed automatically</b> (${esc(err)}). Use <b>Share / email</b> below to send it to overheaduas@gmail.com${clientEmail ? ' and ' + esc(clientEmail) : ''}, or download it.</p>`;
+        ? `<p class="ok-msg"><b>&#10003; Signed ${esc(docLabel)} submitted.</b> ${sent.quiet ? 'Saved to Overhead UAS records. No email was sent' : 'Emailed to Overhead UAS'}${sent.sentClient ? ' and a copy to ' + esc(shownCopy) : ''}${sent.quiet ? '.' : ', and saved for safe keeping.'}</p>`
+        : `<p class="err-msg"><b>The ${esc(docLabel)} is signed, but it couldn't be emailed automatically</b> (${esc(err)}). Use <b>Share / email</b> below to send it to overheaduas@gmail.com${shownCopy ? ' and ' + esc(shownCopy) : ''}, or download it.</p>`;
       doneEl.innerHTML += `<p class="note">Document ID: ${esc(docId)}</p>
         <div class="fill-actions"><button class="btn ${sent ? 'btn-ghost' : 'btn-primary'}" data-d="share">Share / email</button><button class="btn btn-ghost" data-d="dl">Download signed copy</button><button class="btn btn-ghost" data-d="new">Start a new ${esc(docLabel)}</button></div>`;
       doneEl.querySelector('[data-d=dl]').onclick = () => saveBlob(url, name);
