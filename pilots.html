@@ -82,6 +82,19 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .top-btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .tour{position:fixed;inset:0;z-index:150;background:rgba(10,16,24,.72);display:flex;align-items:center;justify-content:center;padding:16px}
+  .tour-box{background:var(--card);color:var(--text);border-radius:16px;max-width:480px;width:100%;max-height:calc(100vh - 32px);overflow:auto;padding:22px 20px 18px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .tour-step{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .tour-ic{width:46px;height:46px;border-radius:12px;background:rgba(30,108,200,.12);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:24px;margin:10px 0}
+  .tour-box h3{font-size:21px;margin:0 0 8px}
+  .tour-box p,.tour-box li{font-size:15px;line-height:1.55}
+  .tour-box ul{padding-left:20px;margin:8px 0}
+  .tour-dots{display:flex;gap:6px;justify-content:center;margin:16px 0 12px}
+  .tour-dots i{width:8px;height:8px;border-radius:50%;background:var(--line2)} .tour-dots i.on{background:var(--blue);width:20px;border-radius:4px}
+  .tour-nav{display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+  .tour-nav .sp{flex:1}
+  .tour-skip{background:none;border:0;color:var(--muted);font:inherit;font-size:14px;cursor:pointer;text-decoration:underline;padding:6px 0}
   .tsec{font-size:15px;margin:16px 2px 0;color:var(--muted)}
   .cdesc{margin-top:10px;font-size:15px;line-height:1.55}
   .video{position:relative;padding-top:56.25%;border-radius:10px;overflow:hidden;background:#000;margin-bottom:10px}
@@ -365,7 +378,7 @@
   <section class="card" id="files" hidden>
     <div class="top">
       <div class="who"><div class="who-name" id="whoName">&#10003; Signed in</div><div class="who-cert" id="whoCert"></div><div class="who-mission" id="whoMission"></div></div>
-      <button class="btn btn-ghost" id="lockBtn" type="button">Sign out</button>
+      <div class="top-btns"><button class="btn btn-ghost" id="guideBtn" type="button">Portal guide</button><button class="btn btn-ghost" id="lockBtn" type="button">Sign out</button></div>
     </div>
     <div id="home" class="tiles">
       <a class="tile" href="#missions" id="missionTile" hidden>
@@ -421,7 +434,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 13; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 14; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1864,6 +1877,66 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     };
   }
 
+
+  // ---------- First sign-in guide ----------
+  function tourSteps() {
+    const admin = ME && ME.role === 'admin', first = esc(((PROFILE && PROFILE.name) || (ME && ME.name) || 'pilot').split(' ')[0]);
+    const st = [
+      {ic: '&#128075;', t: `Welcome, ${first}!`, b: `<p>This is the Overhead UAS <b>Pilot Portal</b>: everything you need before, during, and after a job, on your phone, tablet, or computer.</p>
+        <p>This 2-minute guide shows you around. You can open it again anytime with the <b>Portal guide</b> button at the top.</p>`},
+      {ic: '&#128193;', t: 'Step 1: Set up My Pilot Folder', go: '#me', b: `<p>Do this first. Open <b>My Pilot Folder</b> and:</p><ul>
+        <li>Enter your <b>name</b> and <b>FAA Part 107 certificate number</b>, issue date, and last recurrent training date.</li>
+        <li>Upload a photo of your <b>Part 107 card</b> and your <b>recurrent training certificate</b> (both are required).</li>
+        <li>Add your <b>drone registrations</b> with expiration dates.</li></ul>
+        <p>Your info then <b>fills in forms automatically</b>, and the portal warns you before anything expires.</p>`},
+      {ic: '&#128205;', t: 'Step 2: Start a mission', go: '#missions', b: `<p>For each job, tap <b>Missions → New mission</b>. It gets the next mission number and its own records folder.</p>
+        <p>The mission becomes <b>active</b> (shown at the top of the portal), so every form, risk assessment, and plan you submit is filed with that job automatically.</p>`},
+      {ic: '&#9925;', t: 'Step 3: Plan the flight', go: '#plan', b: `<p><b>Mission Planning</b> pulls in free live data for your location and time:</p><ul>
+        <li>Map with airspace, TFRs, and nearby airports</li><li>Wind at altitude, gusts, visibility, rain, and the Kp index</li>
+        <li>An automatic <b>risk score</b>: green go, yellow caution, red no-go</li></ul>
+        <p>It then builds a <b>kneeboard pack</b> (mission sheet plus risk assessment) to print or keep on your tablet.</p>`},
+      {ic: '&#9997;&#65039;', t: 'Step 4: Fill out & sign forms', go: '#forms', b: `<p>Open <b>Forms</b> and tap <b>Fill out</b> on any form. Type on your phone, have the client <b>sign with a finger</b>, then <b>Submit</b>.</p>
+        <p>The signed PDF is saved to Overhead UAS records. You can send the client a copy if they want one.</p>
+        <p><b>Print</b> gives you a blank copy. The checklists are print-and-laminate only.</p>`},
+      {ic: '&#128295;', t: 'Step 5: Log maintenance', go: '#forms', b: `<p>In Forms, use <b>OVH-204 Maintenance &amp; Repair Log</b> to record inspections, repairs, and battery checks for each aircraft.</p>
+        <p>Entries are kept online. A <b>failed inspection</b> automatically alerts Overhead UAS. You can print an aircraft's full history anytime, for example if the FAA asks.</p>`},
+      {ic: '&#127891;', t: 'Step 6: Complete your training', go: '#training', b: `<p>The <b>Training</b> tile shows courses assigned to you, with due dates. Study the slides or video, pass the quiz, and sign.</p>
+        <p>Your <b>certificate of completion</b> is saved to My Pilot Folder automatically.</p>`}];
+    if (admin) st.push({ic: '&#128737;&#65039;', t: 'Admin tools', go: '#pilots', b: `<p>As an admin you also have:</p><ul>
+        <li><b>Current Pilots</b>: every pilot's folder, documents, and expirations. You can edit or deactivate pilots.</li>
+        <li><b>Training → Manage courses</b>: create courses (slides PDF, video link, quiz), assign them, and see who's done or overdue.</li>
+        <li>All missions and all records.</li></ul>
+        <p><b>New pilot?</b> Each pilot needs their own sign-in code. Ask Claude to add one, then give the pilot their code privately.</p>`});
+    st.push({ic: '&#9989;', t: "You're all set", b: `<ul><li><b>Keep your code private.</b> It's your personal sign-in and signature.</li>
+        <li><b>Add the portal to your home screen.</b> iPhone: Share → Add to Home Screen. Android: ⋮ → Add to Home screen.</li>
+        <li>Tap <b>Sign out</b> when you're done on a shared device.</li>
+        <li>Questions? Call Overhead UAS at <a href="tel:+17605273267">(760) 527-3267</a>.</li></ul>
+        <p>Start by setting up <b>My Pilot Folder</b>.</p>`, go: '#me', goLabel: 'Open My Pilot Folder'});
+    return st;
+  }
+  const tourKey = () => 'ouas_tour_v1_' + ((ME && ME.id) || 'x');
+  function closeTour() { const t = document.querySelector('.tour'); if (t) t.remove(); try { localStorage.setItem(tourKey(), '1'); } catch (e) {} }
+  function openTour(i = 0) {
+    const steps = tourSteps(); i = Math.max(0, Math.min(steps.length - 1, i));
+    let t = document.querySelector('.tour'); if (!t) { t = document.createElement('div'); t.className = 'tour'; t.setAttribute('role', 'dialog'); t.setAttribute('aria-modal', 'true'); document.body.appendChild(t); }
+    const s = steps[i], last = i === steps.length - 1;
+    t.innerHTML = `<div class="tour-box"><div class="tour-step">${i === 0 ? 'Getting started' : `${i} of ${steps.length - 1}`}</div>
+      <div class="tour-ic">${s.ic}</div><h3>${s.t}</h3>${s.b}
+      <div class="tour-dots">${steps.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>
+      <div class="tour-nav">${i > 0 ? '<button class="btn btn-ghost sm" data-t="back">Back</button>' : '<button class="tour-skip" data-t="skip">Skip guide</button>'}<span class="sp"></span>
+        ${s.go && !last ? `<button class="btn btn-ghost sm" data-t="go">Take me there</button>` : ''}
+        ${last ? `<button class="btn btn-primary sm" data-t="go">${s.goLabel || 'Done'}</button>` : '<button class="btn btn-primary sm" data-t="next">Next</button>'}</div></div>`;
+    t.querySelector('[data-t=next]') && (t.querySelector('[data-t=next]').onclick = () => openTour(i + 1));
+    t.querySelector('[data-t=back]') && (t.querySelector('[data-t=back]').onclick = () => openTour(i - 1));
+    t.querySelector('[data-t=skip]') && (t.querySelector('[data-t=skip]').onclick = closeTour);
+    t.querySelector('[data-t=go]') && (t.querySelector('[data-t=go]').onclick = () => { closeTour(); location.hash = s.go; });
+    t.onclick = e => { if (e.target === t) closeTour(); };
+    t.querySelector('.tour-box').scrollTop = 0;
+  }
+  function maybeTour() { let seen = null; try { seen = localStorage.getItem(tourKey()); } catch (e) {} if (!seen && ME) setTimeout(() => { if (ME && !document.querySelector('.tour')) openTour(0); }, 900); }
+  $('guideBtn').onclick = () => openTour(0);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.tour')) closeTour(); });
+
   $('unlockForm').addEventListener('submit', async e => {
     e.preventDefault();
     const code = $('code').value;
@@ -1880,7 +1953,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         msg.innerHTML = 'The portal was updated. <a href="pilots.html?v=' + Date.now() + '"><b>Tap here to load the new version</b></a>, then enter your code again.';
         K = null; manifest = null; return;
       }
-      render(); route(); loadMe(); loadTraining();
+      render(); route(); loadMe(); loadTraining(); maybeTour();
       $('code').value = '';
       $('lock').hidden = true; $('files').hidden = false; document.querySelector('.lead').hidden = true;
     } catch (err) {
@@ -1919,6 +1992,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     $('whoName').innerHTML = '&#10003; Signed in'; $('whoCert').innerHTML = ''; $('whoMission').innerHTML = '';
     if ($('missionsView')) $('missionsView').innerHTML = '';
     if ($('trainingView')) $('trainingView').innerHTML = ''; TRAIN = null;
+    { const t = document.querySelector('.tour'); if (t) t.remove(); }
     $('files').hidden = true; $('lock').hidden = false; document.querySelector('.lead').hidden = false; $('code').focus();
   });
 })();
