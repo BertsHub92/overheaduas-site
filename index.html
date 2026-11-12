@@ -113,6 +113,11 @@
   .panel li::before{content:"";flex:none;width:7px;height:7px;margin-top:9px;border-radius:2px;background:var(--accent)}
   .note{font-size:13.5px;color:#7f93a6;border-left:2px solid var(--blue);padding:4px 0 4px 14px;line-height:1.55}
 
+  /* Mission */
+  .mission{padding:90px 0;text-align:center;background:radial-gradient(ellipse at 50% 0%,rgba(75,163,227,.12),transparent 65%);border-top:1px solid var(--line)}
+  .mission-text{font:600 clamp(24px,3.6vw,38px)/1.35 "Space Grotesk",sans-serif;max-width:900px;margin:18px auto 0;letter-spacing:-.01em}
+  .mission-text em{font-style:normal;color:var(--hi)}
+
   /* About */
   .about{display:grid;grid-template-columns:1.1fr .9fr;gap:60px;align-items:center}
   .about p{color:var(--muted);font-size:17px;margin-bottom:18px}
@@ -160,6 +165,13 @@
   footer .disclaimer{display:block;font-size:12.5px;color:#6f8396;padding-bottom:18px;margin-bottom:18px;border-bottom:1px solid var(--line);line-height:1.6}
   footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
 
+  @media (max-width:1080px){
+    .nav ul{display:none}
+    .menu-btn{display:block;margin-left:14px}
+    .nav.open ul{display:flex;flex-direction:column;position:absolute;top:68px;left:0;right:0;background:var(--bg);padding:20px 24px;gap:18px;border-bottom:1px solid var(--line)}
+    .nav>.btn{margin-left:auto}
+  }
+  @media (max-width:720px){ .nav>.btn{display:none} }
   @media (max-width:980px){
     .grid{grid-template-columns:1fr 1fr}
     .uses{grid-template-columns:1fr 1fr}
@@ -168,9 +180,6 @@
   }
   @media (max-width:720px){
     .wrap{padding:0 16px}
-    .nav ul,.nav .btn{display:none}
-    .menu-btn{display:block}
-    .nav.open ul{display:flex;flex-direction:column;position:absolute;top:68px;left:0;right:0;background:var(--bg);padding:20px 16px;gap:18px;border-bottom:1px solid var(--line)}
     .hero{padding:40px 0 72px}
     .hero-logo{width:200px;margin-bottom:26px}
     section{padding:72px 0}
@@ -217,6 +226,7 @@
       <li><a href="#work">Our Work</a></li>
       <li><a href="#clients">Who We Serve</a></li>
       <li><a href="#mapping">Specialized</a></li>
+      <li><a href="#mission">Mission</a></li>
       <li><a href="#about">About</a></li>
       <li><a href="#contact">Contact</a></li>
     </ul>
@@ -414,6 +424,14 @@
           <p class="note">Our orthomosaic maps are intended for visualization and planning purposes. Overhead UAS is not a licensed land surveyor and does not provide certified land surveys.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- MISSION -->
+  <section id="mission" class="mission">
+    <div class="wrap">
+      <div class="eyebrow">Our mission</div>
+      <p class="mission-text">Overhead UAS is committed to providing <em>safe</em>, <em>efficient</em>, and <em>high quality</em> results in both missions and customer relations.</p>
     </div>
   </section>
 
