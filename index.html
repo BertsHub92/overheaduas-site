@@ -147,6 +147,14 @@
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
   textarea{min-height:120px;resize:vertical}
   form button{border:0;cursor:pointer;justify-content:center}
+  form button:disabled{opacity:.6;cursor:wait}
+  .hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+  .form-status{font-size:15px;margin:0;min-height:0}
+  .form-status.ok{color:#6fd39a;background:rgba(111,211,154,.1);border:1px solid rgba(111,211,154,.35);border-radius:10px;padding:14px}
+  .form-status.err{color:#ff8a8f;background:rgba(239,59,69,.1);border:1px solid rgba(239,59,69,.35);border-radius:10px;padding:14px}
+  .form-status a{text-decoration:underline}
+  input.invalid,textarea.invalid{border-color:var(--hi)}
+  .text-us{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px;margin-top:16px;color:var(--muted)}
 
   footer{border-top:1px solid var(--line);padding:34px 0;color:var(--muted);font-size:14px}
   footer .disclaimer{display:block;font-size:12.5px;color:#6f8396;padding-bottom:18px;margin-bottom:18px;border-bottom:1px solid var(--line);line-height:1.6}
@@ -177,6 +185,24 @@
     .pilots{flex-direction:column}
   }
 </style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "LocalBusiness",
+  "name": "Overhead UAS",
+  "alternateName": "Overhead Unmanned Aircraft Systems",
+  "description": "FAA-certified, insured drone pilots offering aerial photography, videography, aerial roof inspections, orthomosaic mapping, and property surveillance in North County San Diego and across San Diego County.",
+  "url": "https://overheaduas.com/",
+  "logo": "https://overheaduas.com/logo.png",
+  "image": "https://overheaduas.com/images/property-overhead.webp",
+  "telephone": "+1-760-527-3267",
+  "email": "overheaduas@gmail.com",
+  "foundingDate": "2018",
+  "founder": [{"@type": "Person", "name": "Bert H."}, {"@type": "Person", "name": "Anthony M."}],
+  "areaServed": [{"@type": "AdministrativeArea", "name": "North County San Diego"}, {"@type": "AdministrativeArea", "name": "San Diego County, CA"}],
+  "sameAs": ["https://yelp.to/oQH6SLngww"]
+}
+</script>
 </head>
 <body>
 
@@ -445,14 +471,19 @@
         <p class="signoff">We look forward to hearing from you.<b>Respectfully, Bert H. &amp; Anthony M.</b></p>
       </div>
 
-      <form id="quote" onsubmit="return sendQuote(event)">
-        <div><label for="name">Name</label><input id="name" required autocomplete="name"></div>
-        <div><label for="email">Email</label><input id="email" type="email" required autocomplete="email"></div>
-        <div><label for="phone">Phone</label><input id="phone" type="tel" autocomplete="tel"></div>
+      <div class="quote-wrap">
+      <form id="quote" novalidate>
+        <input type="checkbox" name="botcheck" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <div><label for="name">Name *</label><input id="name" name="name" required autocomplete="name"></div>
+        <div><label for="phone">Phone *</label><input id="phone" name="phone" type="tel" required autocomplete="tel" placeholder="(760) 555-0123"></div>
+        <div><label for="email">Email *</label><input id="email" name="email" type="email" required autocomplete="email"></div>
+        <div><label for="reach">Best way to reach you</label>
+          <select id="reach" name="contact"><option>Text</option><option>Call</option><option>Email</option></select></div>
         <div><label for="service">Service</label>
-          <select id="service">
+          <select id="service" name="service">
             <option>Aerial photo / video</option>
             <option>Real estate</option>
+            <option>Aerial roof inspection</option>
             <option>Custom video</option>
             <option>Orthomosaic map</option>
             <option>Surveillance / security</option>
@@ -462,11 +493,19 @@
             <option>Business promotion</option>
             <option>Other</option>
           </select></div>
-        <div><label for="date">Preferred date</label><input id="date" type="date"></div>
-        <div><label for="loc">Location</label><input id="loc" placeholder="City or address"></div>
-        <div class="full"><label for="msg">Tell us about your project</label><textarea id="msg" required></textarea></div>
-        <div class="full"><button class="btn btn-primary" type="submit" style="width:100%">Send Request</button></div>
+        <div><label for="date">Preferred date</label><input id="date" name="date" type="date"></div>
+        <div class="full"><label for="loc">Location</label><input id="loc" name="location" placeholder="City or address"></div>
+        <div class="full"><label for="msg">Tell us about your project *</label><textarea id="msg" name="message" required></textarea></div>
+        <div class="full"><button class="btn btn-primary" type="submit" id="sendBtn" style="width:100%">Send Request</button></div>
+        <p class="full form-status" id="formStatus" role="status" aria-live="polite"></p>
       </form>
+      <div class="text-us">
+        <span>Prefer texting?</span>
+        <a class="btn btn-ghost" id="textBtn" href="sms:+17605273267">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/></svg>
+          Text us at <span data-phone-text>(760) 527-3267</span></a>
+      </div>
+      </div>
     </div>
   </section>
 </main>
@@ -496,14 +535,55 @@
   }));
   lb.addEventListener('click', () => lb.hidden = true);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') lb.hidden = true; });
+  // ---- Quote form ----
+  // Free form service (web3forms.com) delivers requests to overheaduas@gmail.com.
+  // Paste the access key from Web3Forms here:
+  const WEB3FORMS_KEY = 'PASTE_ACCESS_KEY_HERE';
   const QUOTE_EMAIL = 'overheaduas@gmail.com';
-  function sendQuote(e){
-    e.preventDefault();
-    const v = id => document.getElementById(id).value;
-    const body = `Name: ${v('name')}\nEmail: ${v('email')}\nPhone: ${v('phone')}\nService: ${v('service')}\nPreferred date: ${v('date')}\nLocation: ${v('loc')}\n\n${v('msg')}`;
-    location.href = `mailto:${QUOTE_EMAIL}?subject=${encodeURIComponent('Quote request: ' + v('service'))}&body=${encodeURIComponent(body)}`;
-    return false;
+  const form = document.getElementById('quote');
+  const statusEl = document.getElementById('formStatus');
+  const btn = document.getElementById('sendBtn');
+  const val = id => document.getElementById(id).value.trim();
+  const smsHref = body => 'sms:+1' + PHONE.replace(/\D/g,'') + '?&body=' + encodeURIComponent(body);
+  document.getElementById('textBtn').href = smsHref("Hi Overhead UAS! I'd like a quote for drone services.");
+  function summary(){
+    return `Name: ${val('name')}\nPhone: ${val('phone')}\nEmail: ${val('email')}\nBest way to reach: ${val('reach')}\nService: ${val('service')}\nPreferred date: ${val('date') || '-'}\nLocation: ${val('loc') || '-'}\n\n${val('msg')}`;
   }
+  function showStatus(cls, html){ statusEl.className = 'full form-status ' + cls; statusEl.innerHTML = html; }
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    let ok = true;
+    ['name','phone','email','msg'].forEach(id => {
+      const el = document.getElementById(id);
+      const bad = !el.value.trim() || (id === 'email' && !el.checkValidity()) || (id === 'phone' && el.value.replace(/\D/g,'').length < 10);
+      el.classList.toggle('invalid', bad); if (bad) ok = false;
+    });
+    if (!ok) { showStatus('err', 'Please fill in your name, a 10-digit phone number, a valid email, and a few details about your project.'); return; }
+    const mailto = `mailto:${QUOTE_EMAIL}?subject=${encodeURIComponent('Quote request: ' + val('service'))}&body=${encodeURIComponent(summary())}`;
+    const fallback = `Please <a href="${mailto}">email us</a>, <a href="${smsHref('Quote request\n' + summary())}">text us</a>, or call <a href="tel:+1${PHONE.replace(/\D/g,'')}">${PHONE}</a>.`;
+    if (WEB3FORMS_KEY.startsWith('PASTE')) { location.href = mailto; return; }
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      const data = Object.fromEntries(new FormData(form));
+      Object.assign(data, {
+        access_key: WEB3FORMS_KEY,
+        subject: `New quote request: ${val('service')} (${val('name')})`,
+        from_name: 'overheaduas.com quote form',
+        replyto: val('email'),
+      });
+      const res = await fetch('https://api.web3forms.com/submit', {
+        method: 'POST', headers: {'Content-Type':'application/json', Accept:'application/json'}, body: JSON.stringify(data)
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'Send failed');
+      form.reset();
+      showStatus('ok', `<b>Thanks, request sent!</b> We'll get back to you soon by ${data.contact.toLowerCase()}. Need us sooner? Call or text <a href="tel:+1${PHONE.replace(/\D/g,'')}">${PHONE}</a>.`);
+    } catch (err) {
+      showStatus('err', 'Sorry, your request didn\'t go through. ' + fallback);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Send Request';
+    }
+  });
 </script>
 </body>
 </html>
