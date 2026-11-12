@@ -82,6 +82,30 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .tsec{font-size:15px;margin:16px 2px 0;color:var(--muted)}
+  .cdesc{margin-top:10px;font-size:15px;line-height:1.55}
+  .video{position:relative;padding-top:56.25%;border-radius:10px;overflow:hidden;background:#000;margin-bottom:10px}
+  .video iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .quiz{display:grid;gap:12px}
+  .qq{border:1px solid var(--line);border-radius:10px;padding:12px}
+  .qq b{display:block;margin-bottom:8px;font-size:15px}
+  .qq label{display:flex;gap:9px;align-items:flex-start;margin:6px 0;font-size:14.5px;color:var(--text);cursor:pointer}
+  .qq input{margin-top:3px;width:18px;height:18px;accent-color:var(--blue);flex:none}
+  .qq.invalid{border-color:var(--err)} .qq.missed{border-color:var(--err);background:rgba(196,35,48,.05)}
+  .admin-train{margin-top:22px;border-left:3px solid var(--blue)}
+  .tmatrix td,.tmatrix th{font-size:13px;white-space:nowrap}
+  .quiz-tools{display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-bottom:12px}
+  @media (max-width:700px){.quiz-tools{grid-template-columns:1fr}}
+  .qt{border:1px dashed var(--line2);border-radius:10px;padding:12px}
+  .qt textarea,.qcard textarea,.pcard textarea[data-c]{width:100%;padding:9px 11px;font:14.5px Inter,sans-serif;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);margin-top:6px}
+  .pcard select[data-c],.qt select{padding:9px 10px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);font:14.5px Inter,sans-serif}
+  .pcard select[data-c]{width:100%}
+  .qedit{display:grid;gap:10px}
+  .qcard{border:1px solid var(--line);border-radius:10px;padding:12px}
+  .qcard input[type=text]{width:100%;padding:8px 10px;font-size:14px;margin-top:6px}
+  .qopt{display:flex;gap:8px;align-items:center} .qopt label{display:flex;gap:4px;align-items:center;margin:6px 0 0;flex:none}
+  .qopt input[type=radio]{accent-color:var(--ok)}
+  label.inline{display:inline-flex;gap:4px;align-items:center;margin:0}
   .viewer{position:fixed;inset:0;z-index:200;background:rgba(10,16,24,.92);display:flex;flex-direction:column}
   .viewer-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));background:var(--panel);border-bottom:1px solid var(--line)}
   .viewer-bar b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60vw;color:var(--text)}
@@ -356,6 +380,11 @@
         <div class="tile-body"><h3>Forms</h3><p>Checklists, mission records, client and pilot forms</p><span class="tile-meta" id="formCount"></span></div>
         <span class="tile-go">&rsaquo;</span>
       </a>
+      <a class="tile" href="#training" id="trainTile" hidden>
+        <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8l10-5 10 5-10 5z"/><path d="M6 10.5V16c2.5 2 9.5 2 12 0v-5.5M22 8v6"/></svg></div>
+        <div class="tile-body"><h3>Training</h3><p>Company, regulations, and safety courses with quizzes and certificates</p><span class="tile-meta" id="trainMeta">Courses and certificates</span></div>
+        <span class="tile-go">&rsaquo;</span>
+      </a>
       <a class="tile" href="#plan">
         <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg></div>
         <div class="tile-body"><h3>Mission Planning</h3><p>Map a location: airspace, LAANC ceiling, TFRs, airports, weather, and sun times</p><span class="tile-meta">Create a mission plan</span></div>
@@ -380,6 +409,7 @@
     <div id="folderView" hidden></div>
     <div id="planView" hidden></div>
     <div id="missionsView" hidden></div>
+    <div id="trainingView" hidden></div>
     <div id="pilotsView" hidden></div>
     <div id="formsView" hidden>
       <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Forms</h2></div>
@@ -393,7 +423,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 11; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 12; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1640,6 +1670,237 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     });
   }
 
+
+  // ---------- Training ----------
+  let TRAIN = null;
+  const CATS = ['Company', 'Regulations & laws', 'Safety', 'Equipment', 'Other'];
+  const tBadge = st => !st ? '' : st.state === 'done' ? `<span class="badge green">&#10003; Completed ${esc(st.completed || '')}</span>`
+    : st.state === 'overdue' ? `<span class="badge red">Overdue${st.due ? ' (due ' + esc(st.due) + ')' : ''}</span>` : `<span class="badge amber">Due${st.due ? ' by ' + esc(st.due) : ''}</span>`;
+  function videoEmbed(url) {
+    const u = String(url || ''); let m;
+    if ((m = u.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})/))) return `https://www.youtube-nocookie.com/embed/${m[1]}?rel=0`;
+    if ((m = u.match(/vimeo\.com\/(?:video\/)?(\d+)/))) return `https://player.vimeo.com/video/${m[1]}`;
+    return '';
+  }
+  async function loadTraining() {
+    if (!ME || !manifest.submit) return null;
+    try { TRAIN = await papi('train.list'); if (!TRAIN || !Array.isArray(TRAIN.courses)) TRAIN = null; } catch (e) { TRAIN = null; }
+    const due = TRAIN ? TRAIN.courses.filter(c => c.my.state !== 'done').length : 0, od = TRAIN ? TRAIN.courses.filter(c => c.my.state === 'overdue').length : 0;
+    if ($('trainMeta')) { $('trainMeta').textContent = !TRAIN ? 'Courses and certificates' : od ? `${od} overdue` : due ? `${due} due` : 'All caught up'; $('trainMeta').className = 'tile-meta' + (od ? ' warn-inline' : ''); }
+    return TRAIN;
+  }
+
+  async function openTraining() {
+    const v = $('trainingView');
+    v.innerHTML = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Training</h2></div><p class="note">Loading…</p>`;
+    const T = await loadTraining();
+    if (!T) { v.querySelector('.note').outerHTML = '<p class="err-msg">Couldn\'t load training. Check your connection.</p>'; return; }
+    const card = c => `<a class="prow" href="#course/${encodeURIComponent(c.id)}"><div class="prow-main"><b>${esc(c.title)}</b> ${c.required ? '<span class="badge grey">Required</span>' : ''}
+      <div class="note">${esc(c.category || '')}${c.questions ? ' · ' + c.questions + '-question quiz' : ''}${c.repeat === 'Yearly' ? ' · yearly' : ''}</div></div><div>${tBadge(c.my)}</div><span class="tile-go">&rsaquo;</span></a>`;
+    const todo = T.courses.filter(c => c.my.state !== 'done'), done = T.courses.filter(c => c.my.state === 'done');
+    let html = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Training</h2></div>
+      <h3 class="tsec">To do (${todo.length})</h3><div class="mlist">${todo.map(card).join('') || '<p class="note">You\'re all caught up.</p>'}</div>
+      ${done.length ? `<h3 class="tsec">Completed (${done.length})</h3><div class="mlist">${done.map(card).join('')}</div>` : ''}`;
+    if (T.admin) {
+      const active = T.all.filter(c => c.status === 'Active');
+      html += `<div class="pcard admin-train"><div class="pcard-top"><h4>Manage courses (admins)</h4><a class="btn btn-primary sm" href="#course-edit/new">+ New course</a></div>
+        <div class="mlist">${T.all.map(c => `<a class="prow" href="#course-edit/${encodeURIComponent(c.id)}"><div class="prow-main"><b>${esc(c.id)}</b> ${esc(c.title)}
+          ${c.status !== 'Active' ? '<span class="badge grey">' + esc(c.status) + '</span>' : ''}<div class="note">${esc([c.category, c.assigned === 'All' ? 'All pilots' : 'Selected pilots', c.questions + ' questions', c.due && 'due ' + c.due, c.repeat].filter(Boolean).join(' · '))}</div></div><span class="tile-go">&rsaquo;</span></a>`).join('') || '<p class="note">No courses yet.</p>'}</div>
+        ${active.length ? `<h4>Pilot training status</h4><div class="mtable-wrap"><table class="mtable tmatrix"><tr><th>Pilot</th>${active.map(c => `<th title="${esc(c.title)}">${esc(c.id)}</th>`).join('')}</tr>
+          ${T.pilots.map(p => `<tr><td>${esc(p.name)}</td>${active.map(c => { const s = p.status[c.id]; return `<td>${!s ? '<span class="note">–</span>' : s.state === 'done' ? `<span class="ok-inline">&#10003; ${esc(s.completed)}</span>${s.score !== '' ? '<div class="note">' + esc(s.score) + '%</div>' : ''}` : s.state === 'overdue' ? '<span class="badge red">Overdue</span>' : '<span class="badge amber">Due</span>'}</td>`; }).join('')}</tr>`).join('')}</table></div>
+          <div class="fill-actions"><button class="btn btn-ghost sm" data-x="print">Print training report</button></div>` : ''}</div>`;
+    }
+    v.innerHTML = html;
+    const pb = v.querySelector('[data-x=print]');
+    if (pb) pb.onclick = () => {
+      const active = T.all.filter(c => c.status === 'Active');
+      const rep = `<!doctype html><html><head><meta charset="utf-8"><title>Training report</title><style>body{font:11px Helvetica,Arial,sans-serif;padding:24px;color:#111}h1{font-size:20px;color:#0b1f33;margin:0}
+        .s{color:#c8102e;font-weight:700;font-size:10px}table{border-collapse:collapse;width:100%;margin-top:14px}th,td{border:1px solid #c3ccd5;padding:5px;text-align:left;vertical-align:top}th{background:#e9eef3;font-size:9px}
+        .ok{color:#1a7f3c;font-weight:700}.od{color:#c8102e;font-weight:700}@media print{button{display:none}}</style></head><body><button onclick="print()">Print</button>
+        <h1>PILOT TRAINING REPORT</h1><div class="s">OVERHEAD UAS</div><div>Generated ${esc(nowStamp())}</div>
+        <table><tr><th>Course</th><th>Category</th><th>Required</th><th>Repeat</th><th>Due</th></tr>${active.map(c => `<tr><td>${esc(c.id)} ${esc(c.title)}</td><td>${esc(c.category || '')}</td><td>${c.required ? 'Yes' : 'No'}</td><td>${esc(c.repeat)}</td><td>${esc(c.due || '')}</td></tr>`).join('')}</table>
+        <table><tr><th>Pilot</th>${active.map(c => `<th>${esc(c.id)}</th>`).join('')}</tr>${T.pilots.map(p => `<tr><td>${esc(p.name)}</td>${active.map(c => { const s = p.status[c.id];
+          return `<td>${!s ? '–' : s.state === 'done' ? `<span class="ok">Completed ${esc(s.completed)}</span>${s.score !== '' ? ' (' + esc(s.score) + '%)' : ''}${s.until ? '<br>valid until ' + esc(s.until) : ''}` : s.state === 'overdue' ? '<span class="od">OVERDUE</span>' : 'Due'}</td>`; }).join('')}</tr>`).join('')}</table></body></html>`;
+      showFile(new Blob([rep], {type: 'text/html'}), 'Training report.html', 'text/html');
+    };
+  }
+
+  async function openCourse(id) {
+    const v = $('trainingView');
+    v.innerHTML = `<div class="view-head"><a href="#training" class="back-btn">&lsaquo; Training</a><h2>Course</h2></div><p class="note">Loading…</p>`;
+    let r; try { r = await papi('train.get', {course: id}); } catch (e) { v.querySelector('.note').outerHTML = `<p class="err-msg">Couldn't open this course (${esc(e.message)}).</p>`; return; }
+    const c = r.course, emb = videoEmbed(c.link);
+    v.innerHTML = `<div class="view-head"><a href="#training" class="back-btn">&lsaquo; Training</a><h2>${esc(c.title)}</h2></div>
+      <div class="pcard"><div class="pcard-top"><div><span class="badge grey">${esc(c.category || 'Training')}</span> ${c.required ? '<span class="badge grey">Required</span>' : ''}</div>${tBadge(c.my)}</div>
+        ${c.description ? `<p class="cdesc">${esc(c.description).replace(/\n/g, '<br>')}</p>` : ''}</div>
+      <div class="pcard"><h4>1 · Study the material</h4>
+        ${emb ? `<div class="video"><iframe src="${esc(emb)}" title="Training video" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen></iframe></div>` : ''}
+        <div class="fill-actions">${c.slides ? '<button class="btn btn-primary sm" data-x="slides">Open slides</button>' : ''}${c.link && !emb ? `<a class="btn btn-primary sm" href="${esc(c.link)}" target="_blank" rel="noopener">Open training link</a>` : ''}</div>
+        ${!emb && !c.slides && !c.link ? '<p class="note">No material attached.</p>' : ''}</div>
+      ${c.quiz.length ? `<div class="pcard"><h4>2 · Quiz</h4><p class="note">${c.quiz.length} questions · pass ${c.pass}% · you can retake it</p>
+        <div class="quiz">${c.quiz.map((q, i) => `<div class="qq" data-q="${i}"><b>${i + 1}. ${esc(q.question)}</b>${q.options.map((o, k) => `<label><input type="radio" name="q${i}" value="${k}"><span>${esc(o)}</span></label>`).join('')}</div>`).join('')}</div></div>` : ''}
+      <div class="pcard"><h4>${c.quiz.length ? '3' : '2'} · Acknowledge &amp; sign</h4>
+        <label class="remember"><input type="checkbox" data-x="ack">I have completed this training, understand the material, and will follow these procedures.</label>
+        <div class="sigs" style="margin-top:10px"><div class="sig" data-sig="pilot"><div class="sig-preview"><span>Not signed yet</span></div>
+          <div class="sig-row"><span class="sig-label">Pilot signature <span class="req">*</span></span><button class="btn btn-ghost sig-btn" type="button" data-sign="pilot">Sign</button></div></div></div>
+        <p class="msg err" data-role="err" hidden></p>
+        <div class="fill-actions"><button class="btn btn-primary" data-x="submit">Submit training</button></div><div data-role="done"></div></div>`;
+    let sig = null;
+    const q = s => v.querySelector(s);
+    if (q('[data-x=slides]')) q('[data-x=slides]').onclick = async e => { const b = e.currentTarget, t = b.textContent; b.disabled = true; b.textContent = 'Opening…';
+      try { const f = await papi('train.slides', {course: id}); showFile(unb64(f.data), f.name || 'Slides.pdf', f.mime); } catch (x) { alert('Could not open the slides (' + x.message + ')'); } finally { b.disabled = false; b.textContent = t; } };
+    q('[data-sign=pilot]').onclick = () => signaturePad('Pilot', (PROFILE && PROFILE.name) || ME.name, png => { sig = png; const el = q('[data-sig=pilot]'); el.classList.add('signed'); el.classList.remove('invalid');
+      el.querySelector('.sig-preview').innerHTML = `<img alt="signature" src="${png}">`; q('[data-sign=pilot]').textContent = 'Redo'; });
+    v.addEventListener('change', e => { const qq = e.target.closest('.qq'); if (qq) qq.classList.remove('invalid', 'missed'); });
+    q('[data-x=submit]').onclick = async e => {
+      const err = q('[data-role=err]'), miss = [];
+      const answers = c.quiz.map((_, i) => { const a = v.querySelector(`input[name=q${i}]:checked`); if (!a) { v.querySelector(`[data-q="${i}"]`).classList.add('invalid'); miss.push(i); } return a ? +a.value : -1; });
+      if (!q('[data-x=ack]').checked) miss.push('ack');
+      if (!sig) { q('[data-sig=pilot]').classList.add('invalid'); miss.push('sig'); }
+      if (miss.length) { err.hidden = false; err.textContent = 'Answer every question, check the acknowledgment, and sign before submitting.'; return; }
+      err.hidden = true; const b = e.currentTarget; b.disabled = true; b.textContent = 'Submitting…';
+      try {
+        const res = await papi('train.submit', {course: id, answers, signature: sig});
+        const done = q('[data-role=done]');
+        if (res.passed) {
+          done.innerHTML = `<p class="ok-msg"><b>&#10003; Passed with ${res.score}%.</b> Your certificate of completion was saved to <a href="#me">My Pilot Folder</a>${res.until ? ' (valid until ' + esc(res.until) + ')' : ''}.</p>`;
+          b.hidden = true; v.querySelectorAll('input, [data-sign]').forEach(i => i.disabled = true); loadMe(); loadTraining();
+        } else {
+          res.missed.forEach(n => v.querySelector(`[data-q="${n - 1}"]`).classList.add('missed'));
+          done.innerHTML = `<p class="err-msg"><b>Score ${res.score}%</b> (${res.pass}% needed to pass). Questions to review: ${res.missed.join(', ')}. Review the material and try again.</p>`;
+          b.disabled = false; b.textContent = 'Submit again';
+        }
+        done.scrollIntoView({behavior: 'smooth', block: 'center'});
+      } catch (x) { err.hidden = false; err.textContent = 'Could not submit (' + x.message + ')'; b.disabled = false; b.textContent = 'Submit training'; }
+    };
+  }
+
+  // ----- quiz import (free path via Claude.ai or any text)
+  function parseQuizText(t) {
+    const out = []; let cur = null;
+    for (const raw of String(t || '').split(/\r?\n/)) {
+      const l = raw.trim().replace(/^\*\*|\*\*$/g, ''); if (!l) continue; let m;
+      if ((m = l.match(/^(?:Q(?:uestion)?\s*)?(\d+)\s*[.):-]\s*(.+)$/i)) && !/^[A-F][.)]/.test(l)) { cur = {question: m[2].replace(/\*\*/g, ''), options: [], answer: 0, explanation: ''}; out.push(cur); }
+      else if (cur && (m = l.match(/^\(?([A-F])[.)]\s*(.+)$/i))) cur.options.push(m[2].replace(/\s*\((?:correct)\)\s*$/i, ''));
+      else if (cur && (m = l.match(/^(?:correct\s+)?answer\s*[:\-]\s*\(?([A-F])\b/i))) cur.answer = 'ABCDEF'.indexOf(m[1].toUpperCase());
+      else if (cur && (m = l.match(/^(?:explanation|why)\s*[:\-]\s*(.+)$/i))) cur.explanation = m[1];
+    }
+    return out.filter(x => x.options.length >= 2);
+  }
+  const claudePrompt = (title, n) => `Write a ${n}-question multiple-choice quiz for commercial drone pilots, based only on the training material I paste or attach below${title ? ' (course: "' + title + '")' : ''}.
+Rules: each question has exactly 4 options (A-D) with one correct answer; make the wrong options plausible; no "all/none of the above"; vary which letter is correct; do not add facts that are not in the material.
+Use exactly this format and nothing else:
+
+1. Question text?
+A) Option
+B) Option
+C) Option
+D) Option
+Answer: B
+Explanation: One short sentence.
+
+2. ...
+
+Material:
+`;
+
+  async function openCourseEdit(id) {
+    const v = $('trainingView');
+    if (!ME || ME.role !== 'admin') { location.hash = '#training'; return; }
+    v.innerHTML = `<div class="view-head"><a href="#training" class="back-btn">&lsaquo; Training</a><h2>${id === 'new' ? 'New course' : 'Edit course'}</h2></div><p class="note">Loading…</p>`;
+    if (!TRAIN) await loadTraining();
+    let c = {title: '', category: 'Safety', description: '', link: '', slides: null, pass: 80, required: true, assigned: 'All', due: '', repeat: 'Once', status: 'Active', quiz: []};
+    if (id !== 'new') { try { c = (await papi('train.get', {course: id, edit: true})).course; } catch (e) { v.querySelector('.note').outerHTML = `<p class="err-msg">Couldn't open (${esc(e.message)}).</p>`; return; } }
+    const pilots = (TRAIN && TRAIN.pilots) || [], sel = c.assigned === 'All' ? [] : c.assigned.split(',').map(x => x.trim());
+    let quiz = (c.quiz || []).map(x => ({question: x.question, options: (x.options || []).concat(['', '', '', '']).slice(0, Math.max(4, (x.options || []).length)), answer: x.answer || 0, explanation: x.explanation || ''}));
+    const toIsoD = s => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s || ''); return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : ''; };
+    v.innerHTML = `<div class="view-head"><a href="#training" class="back-btn">&lsaquo; Training</a><h2>${id === 'new' ? 'New course' : esc(c.id)}</h2></div>
+      <div class="pcard"><h4>Course</h4><div class="grid2">
+        <div class="wide"><label>Title <span class="req">*</span></label><input type="text" data-c="title" value="${esc(c.title)}" placeholder="e.g. Part 107 rules refresher"></div>
+        <div><label>Category</label><select data-c="category">${CATS.map(x => `<option${x === c.category ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
+        <div><label>Status</label><select data-c="status">${['Active', 'Archived'].map(x => `<option${x === c.status ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
+        <div class="wide"><label>Description / instructions</label><textarea data-c="description" rows="3">${esc(c.description)}</textarea></div></div>
+        <h4>Material</h4><div class="grid2">
+        <div class="wide"><label>Video or link (YouTube, Vimeo, or any web page)</label><input type="text" data-c="link" value="${esc(c.link)}" placeholder="https://www.youtube.com/watch?v=…"></div>
+        <div class="wide"><label>Slides (PDF)</label>${c.slides ? `<div class="note">Current: ${esc(c.slides.name)} · <label class="inline"><input type="checkbox" data-c="removeSlides"> remove</label></div>` : ''}
+          <label class="filepick"><input type="file" accept="application/pdf,.pdf,.ppt,.pptx" data-c="slidesFile"><span>${c.slides ? 'Replace slides PDF' : 'Choose slides PDF'}</span></label>
+          <p class="note">PowerPoint: File → Save As → PDF, then upload the PDF.</p></div></div>
+        <h4>Who &amp; when</h4><div class="grid2">
+        <div class="wide"><label class="remember"><input type="checkbox" data-c="required"${c.required ? ' checked' : ''}>Mandatory</label></div>
+        <div class="wide"><label>Assigned to</label><select data-c="assignMode"><option value="All"${c.assigned === 'All' ? ' selected' : ''}>All pilots</option><option value="Some"${c.assigned !== 'All' ? ' selected' : ''}>Selected pilots</option></select>
+          <div class="checks pilots-pick"${c.assigned === 'All' ? ' hidden' : ''}>${pilots.map(p => `<label><input type="checkbox" data-pilot="${esc(p.id)}"${sel.includes(p.id) ? ' checked' : ''}>${esc(p.name)}</label>`).join('') || '<span class="note">Pilots appear after their first sign-in.</span>'}</div></div>
+        <div><label>Due date</label><input type="date" data-c="due" value="${toIsoD(c.due)}"></div>
+        <div><label>Repeat</label><select data-c="repeat">${['Once', 'Yearly'].map(x => `<option${x === c.repeat ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
+        <div><label>Pass score (%)</label><input type="number" data-c="pass" min="0" max="100" value="${esc(c.pass)}"></div></div></div>
+      <div class="pcard"><div class="pcard-top"><h4>Quiz (<span data-qn>${quiz.length}</span> questions)</h4></div>
+        <div class="quiz-tools">
+          <div class="qt"><b>Generate with AI</b><p class="note">Uses the saved slides PDF and/or text you paste here (for YouTube: open the video → …more → Show transcript → copy). About $0.05–0.25 per quiz.</p>
+            <textarea data-c="aiText" rows="3" placeholder="Paste a video transcript or notes (optional if slides are saved)"></textarea>
+            <div class="fill-actions"><select data-c="aiCount"><option>5</option><option selected>10</option><option>15</option></select><button class="btn btn-primary sm" data-x="ai">&#10024; Generate questions</button><span class="save-msg" data-m="ai"></span></div></div>
+          <div class="qt"><b>Free: write it in Claude.ai</b><p class="note">Copy the prompt, paste it into a Claude.ai chat with the transcript or slides, then paste Claude's quiz below.</p>
+            <div class="fill-actions"><button class="btn btn-ghost sm" data-x="copy">Copy prompt for Claude.ai</button><span class="save-msg" data-m="copy"></span></div>
+            <textarea data-c="paste" rows="3" placeholder="Paste a quiz here (1. Question / A) … / Answer: B)"></textarea>
+            <div class="fill-actions"><button class="btn btn-ghost sm" data-x="import">Add pasted questions</button><span class="save-msg" data-m="import"></span></div></div>
+        </div>
+        <div class="qedit"></div>
+        <div class="fill-actions"><button class="btn btn-ghost sm" data-x="addq">+ Add question</button>${quiz.length ? '<button class="btn btn-ghost sm" data-x="clearq">Remove all questions</button>' : ''}</div></div>
+      <div class="pcard"><div class="fill-actions"><button class="btn btn-primary" data-x="save">Save course</button>${id !== 'new' ? '<button class="btn btn-ghost" data-x="del">Delete course</button>' : ''}<span class="save-msg" data-m="save"></span></div>
+        <p class="note">Saving makes the course appear for the assigned pilots right away. Pilots never see the answers.</p></div>`;
+    const q = s => v.querySelector(s), m = (k, t, bad) => { const el = q(`[data-m=${k}]`); el.textContent = t; el.className = 'save-msg ' + (bad ? 'bad' : 'good'); };
+    const drawQ = () => {
+      q('[data-qn]').textContent = quiz.length;
+      q('.qedit').innerHTML = quiz.map((x, i) => `<div class="qcard" data-i="${i}"><div class="pcard-top"><b>Question ${i + 1}</b><button class="btn btn-ghost sm" data-del="${i}">Remove</button></div>
+        <textarea data-f="question" rows="2">${esc(x.question)}</textarea>
+        ${x.options.map((o, k) => `<div class="qopt"><label><input type="radio" name="ans${i}" value="${k}"${x.answer === k ? ' checked' : ''}><span class="note">correct</span></label><input type="text" data-o="${k}" value="${esc(o)}" placeholder="Option ${'ABCDEF'[k]}"></div>`).join('')}
+        <input type="text" data-f="explanation" value="${esc(x.explanation)}" placeholder="Explanation (optional, admins only)"></div>`).join('');
+      q('.qedit').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { sync(); quiz.splice(+b.dataset.del, 1); drawQ(); });
+    };
+    const sync = () => { q('.qedit').querySelectorAll('.qcard').forEach(el => { const x = quiz[+el.dataset.i]; x.question = el.querySelector('[data-f=question]').value.trim(); x.explanation = el.querySelector('[data-f=explanation]').value.trim();
+      x.options = [...el.querySelectorAll('[data-o]')].map(o => o.value.trim()); const a = el.querySelector('input[type=radio]:checked'); x.answer = a ? +a.value : 0; }); };
+    drawQ();
+    q('[data-c=assignMode]').onchange = e => { q('.pilots-pick').hidden = e.target.value === 'All'; };
+    q('[data-c=slidesFile]').onchange = e => { const f = e.target.files[0]; q('.filepick span').textContent = f ? f.name : 'Choose slides PDF';
+      if (f && !/\.pdf$/i.test(f.name)) { alert('Please save the PowerPoint as a PDF first (File → Save As → PDF), then choose the PDF.'); e.target.value = ''; q('.filepick span').textContent = 'Choose slides PDF'; } };
+    q('[data-x=addq]').onclick = () => { sync(); quiz.push({question: '', options: ['', '', '', ''], answer: 0, explanation: ''}); drawQ(); };
+    if (q('[data-x=clearq]')) q('[data-x=clearq]').onclick = () => { if (confirm('Remove all questions?')) { quiz = []; drawQ(); } };
+    q('[data-x=copy]').onclick = async () => { const t = claudePrompt(q('[data-c=title]').value.trim(), q('[data-c=aiCount]').value);
+      try { await navigator.clipboard.writeText(t); m('copy', 'Copied. Paste it into claude.ai with your material.'); } catch (e) { q('[data-c=paste]').value = t; m('copy', 'Copy the prompt from the box below.'); } };
+    q('[data-x=import]').onclick = () => { sync(); const add = parseQuizText(q('[data-c=paste]').value);
+      if (!add.length) return m('import', 'No questions found. Check the format.', true);
+      quiz = quiz.concat(add.map(x => ({...x, options: x.options.concat(['', '', '', '']).slice(0, Math.max(4, x.options.length))}))); drawQ(); q('[data-c=paste]').value = ''; m('import', `Added ${add.length} questions.`); };
+    q('[data-x=ai]').onclick = async e => {
+      const b = e.currentTarget, text = q('[data-c=aiText]').value.trim();
+      if (!text && (!c.slides || id === 'new')) return m('ai', 'Save the course with a slides PDF first, or paste a transcript.', true);
+      if (quiz.length && !confirm('Replace the current questions with AI-generated ones?')) return;
+      b.disabled = true; b.textContent = 'Writing questions… (up to a minute)'; m('ai', '');
+      try { const r = await papi('train.ai', {course: id === 'new' ? '' : id, text, title: q('[data-c=title]').value.trim(), count: +q('[data-c=aiCount]').value});
+        quiz = r.questions.map(x => ({question: x.question, options: x.options.concat(['', '', '', '']).slice(0, Math.max(4, x.options.length)), answer: x.answer, explanation: x.explanation || ''}));
+        drawQ(); m('ai', `Added ${quiz.length} questions. Review them, then Save course.`); }
+      catch (x) { m('ai', x.message, true); } finally { b.disabled = false; b.innerHTML = '&#10024; Generate questions'; }
+    };
+    q('[data-x=save]').onclick = async e => {
+      sync(); const val = k => (q(`[data-c=${k}]`) || {}).value; const b = e.currentTarget;
+      if (!val('title').trim()) return m('save', 'Enter a title', true);
+      const bad = quiz.findIndex(x => !x.question || x.options.filter(Boolean).length < 2 || !x.options[x.answer]);
+      if (bad >= 0) return m('save', `Question ${bad + 1} needs text, at least 2 options, and a correct answer that isn't blank.`, true);
+      const course = {id: id === 'new' ? '' : id, title: val('title').trim(), category: val('category'), status: val('status'), description: val('description'), link: val('link').trim(),
+        required: q('[data-c=required]').checked, assigned: val('assignMode') === 'All' ? 'All' : [...v.querySelectorAll('[data-pilot]:checked')].map(x => x.dataset.pilot).join(','),
+        due: usDate(val('due')), repeat: val('repeat'), pass: +val('pass') || 80, removeSlides: !!(q('[data-c=removeSlides]') || {}).checked,
+        quiz: quiz.map(x => { const opts = x.options.map((o, k) => ({o, k})).filter(z => z.o); return {question: x.question, options: opts.map(z => z.o), answer: Math.max(0, opts.findIndex(z => z.k === x.answer)), explanation: x.explanation}; })};
+      if (course.assigned === '') return m('save', 'Pick at least one pilot, or assign to all pilots.', true);
+      b.disabled = true; b.textContent = 'Saving…';
+      try {
+        const f = q('[data-c=slidesFile]').files[0], slides = f ? {name: f.name, data: toB64(new Uint8Array(await f.arrayBuffer()))} : null;
+        const r = await papi('train.save', {course, slides}); TRAIN = null; m('save', 'Saved ✓');
+        if (id === 'new') location.hash = '#course-edit/' + encodeURIComponent(r.course.id); else openCourseEdit(id);
+      } catch (x) { m('save', 'Could not save (' + x.message + ')', true); b.disabled = false; b.textContent = 'Save course'; }
+    };
+    if (q('[data-x=del]')) q('[data-x=del]').onclick = async () => {
+      if (!confirm('Delete this course? Completion records and certificates are kept.')) return;
+      try { sync(); await papi('train.save', {course: {...c, quiz: c.quiz, status: 'Deleted', due: c.due}}); TRAIN = null; location.hash = '#training'; } catch (x) { alert('Could not delete (' + x.message + ')'); }
+    };
+  }
+
   $('unlockForm').addEventListener('submit', async e => {
     e.preventDefault();
     const code = $('code').value;
@@ -1656,7 +1917,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         msg.innerHTML = 'The portal was updated. <a href="pilots.html?v=' + Date.now() + '"><b>Tap here to load the new version</b></a>, then enter your code again.';
         K = null; manifest = null; return;
       }
-      render(); route(); loadMe();
+      render(); route(); loadMe(); loadTraining();
       $('code').value = '';
       $('lock').hidden = true; $('files').hidden = false; document.querySelector('.lead').hidden = true;
     } catch (err) {
@@ -1673,16 +1934,18 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     if (h === '#forms') v = 'forms';
     else if (h === '#plan') v = 'plan';
     else if ((h === '#missions' || h.startsWith('#mission/')) && canPilot) v = 'missions';
+    else if ((h === '#training' || h.startsWith('#course/') || h.startsWith('#course-edit/')) && canPilot) v = 'training';
     else if (h === '#me' && canPilot) v = 'folder';
     else if (h === '#pilots' && admin && canPilot) v = 'pilots';
     else if (h.startsWith('#pilot/') && admin && canPilot) v = 'folder';
-    const views = {home: 'home', forms: 'formsView', folder: 'folderView', pilots: 'pilotsView', plan: 'planView', missions: 'missionsView'};
+    const views = {home: 'home', forms: 'formsView', folder: 'folderView', pilots: 'pilotsView', plan: 'planView', missions: 'missionsView', training: 'trainingView'};
     Object.entries(views).forEach(([k, id]) => $(id).hidden = k !== v);
     $('formCount').textContent = manifest.forms.length + ' forms';
-    $('meTile').hidden = !canPilot; $('adminTile').hidden = !(admin && canPilot); $('missionTile').hidden = !canPilot; drawActive();
+    $('meTile').hidden = !canPilot; $('adminTile').hidden = !(admin && canPilot); $('missionTile').hidden = !canPilot; $('trainTile').hidden = !canPilot; drawActive();
     if (v === 'folder') openFolder(h === '#me' ? ME.id : decodeURIComponent(h.slice(7)));
     if (v === 'pilots') openPilots();
     if (v === 'plan') openPlanner();
+    if (v === 'training') h.startsWith('#course-edit/') ? openCourseEdit(decodeURIComponent(h.slice(13))) : h.startsWith('#course/') ? openCourse(decodeURIComponent(h.slice(8))) : openTraining();
     if (v === 'missions') h.startsWith('#mission/') ? openMission(decodeURIComponent(h.slice(9))) : openMissions();
     window.scrollTo(0, 0);
   }
@@ -1692,6 +1955,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     K = null; manifest = null; ME = null; PROFILE = null; MYDOCS = []; $('formList').innerHTML = '';
     $('whoName').innerHTML = '&#10003; Signed in'; $('whoCert').innerHTML = ''; $('whoMission').innerHTML = '';
     if ($('missionsView')) $('missionsView').innerHTML = '';
+    if ($('trainingView')) $('trainingView').innerHTML = ''; TRAIN = null;
     $('files').hidden = true; $('lock').hidden = false; document.querySelector('.lead').hidden = false; $('code').focus();
   });
 })();

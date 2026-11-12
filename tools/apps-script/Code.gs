@@ -22,6 +22,11 @@
  * (Overhead UAS Records/Missions/Mission 002 - name). Forms submitted while a
  * mission is active are filed there and listed in the Missions sheet.
  *
+ * Training: admins create courses (slides PDF, video / link, quiz); pilots
+ * study, take the quiz (graded here), and sign; a certificate is filed in the
+ * pilot's folder. Optional AI quiz writer uses the Claude API with an
+ * ANTHROPIC_API_KEY saved in Script Properties (never in this code).
+ *
  * Setup: see the instructions Claude provided. Deploy as a Web app,
  * "Execute as: Me", "Who has access: Anyone".
  */
@@ -166,6 +171,7 @@ function addAircraft(ss, a, by) {
 
 function handleAction(d) {
   if (/^mission\./.test(d.action)) return missionAction(d);
+  if (/^train\./.test(d.action)) return trainAction(d);
   if (/^(me|pilot|pilots|doc)\./.test(d.action)) return pilotAction(d);
   if (d.action === 'plan.tfr') return planTfr(d);
   if (d.action === 'plan.wx') return planWx(d);
@@ -230,7 +236,10 @@ var PTABS = {
            'Other certs & ratings', 'Role', 'Status', 'Updated', 'Updated by'],
   Documents: ['Doc ID', 'Pilot ID', 'Type', 'Title', 'Aircraft', 'Registration #', 'Expires', 'File name', 'Uploaded', 'Uploaded by', 'Status'],
   Missions: ['Mission #', 'Name', 'Client', 'Planned date', 'Location', 'Pilot ID', 'Pilot', 'Status', 'Folder ID', 'Created', 'Closed'],
-  'Mission Files': ['Mission #', 'Form', 'File name', 'File ID', 'Saved', 'Saved by']
+  'Mission Files': ['Mission #', 'Form', 'File name', 'File ID', 'Saved', 'Saved by'],
+  Courses: ['Course ID', 'Title', 'Category', 'Description', 'Video / link', 'Slides file ID', 'Slides name', 'Quiz JSON', 'Pass %', 'Required', 'Assigned to',
+            'Due date', 'Repeat', 'Status', 'Created', 'Updated by'],
+  Completions: ['Course ID', 'Course', 'Pilot ID', 'Pilot', 'Score %', 'Passed', 'Completed', 'Valid until', 'Certificate file ID']
 };
 var PFIELDS = ['name', 'phone', 'email', 'cert', 'issued', 'recurrent', 'due', 'other'];
 
@@ -493,4 +502,156 @@ function missionAction(d) {
     return {ok: true, mime: bl.getContentType(), name: fr['File name'], data: Utilities.base64Encode(bl.getBytes())};
   }
   return {ok: false, error: 'unknown action'};
+}
+
+
+// ===================== Training =====================
+function trainCourses(ss) { return rows(ss.getSheetByName('Courses')).filter(function (c) { return c['Status'] !== 'Deleted'; }); }
+function assignedTo(c, id) { var a = String(c['Assigned to'] || 'All'); return a === 'All' || a.split(',').map(function (x) { return x.trim(); }).indexOf(id) >= 0; }
+function parseQuiz(c) { try { return JSON.parse(String(c['Quiz JSON'] || '[]')); } catch (e) { return []; } }
+function mdy(s) { var p = String(s || '').split('/'); return p.length === 3 ? new Date(+p[2], +p[0] - 1, +p[1]) : null; }
+function courseOut(c, admin) {
+  var q = parseQuiz(c);
+  return {id: String(c['Course ID']), title: c['Title'], category: c['Category'], description: c['Description'], link: c['Video / link'],
+          slides: c['Slides file ID'] ? {id: c['Slides file ID'], name: c['Slides name']} : null, pass: Number(c['Pass %']) || 80,
+          required: c['Required'] === true || c['Required'] === 'TRUE' || c['Required'] === 'Yes', assigned: String(c['Assigned to'] || 'All'),
+          due: c['Due date'], repeat: c['Repeat'] || 'Once', status: c['Status'] || 'Active', questions: q.length,
+          quiz: admin ? q : q.map(function (x) { return {question: x.question, options: x.options}; })};   // pilots never receive answers
+}
+function bestCompletion(ss, courseId, pilotId) {
+  var list = rows(ss.getSheetByName('Completions')).filter(function (r) { return String(r['Course ID']) === courseId && String(r['Pilot ID']) === pilotId && (r['Passed'] === true || r['Passed'] === 'TRUE' || r['Passed'] === 'Yes'); });
+  list.sort(function (a, b) { return (mdy(b['Completed']) || 0) - (mdy(a['Completed']) || 0); });
+  return list[0] || null;
+}
+function trainStatus(ss, c, pilotId) {
+  var done = bestCompletion(ss, String(c['Course ID']), pilotId), now = new Date();
+  if (done) {
+    var until = mdy(done['Valid until']);
+    if (!until || until >= now) return {state: 'done', completed: done['Completed'], score: done['Score %'], until: done['Valid until'] || ''};
+  }
+  var due = mdy(c['Due date']);
+  return {state: due && due < now ? 'overdue' : 'due', due: c['Due date'] || '', expired: done ? done['Valid until'] : ''};
+}
+
+function trainAction(d) {
+  var ss = pilotBook(), me = pilotAuth(d, ss), lock = LockService.getScriptLock();
+  var C = ss.getSheetByName('Courses'), X = ss.getSheetByName('Completions');
+  var adminOnly = function () { if (!me.admin) throw new Error('admins only'); };
+
+  if (d.action === 'train.list') {
+    var mine = trainCourses(ss).filter(function (c) { return (c['Status'] || 'Active') === 'Active' && assignedTo(c, me.id); }).map(function (c) {
+      var o = courseOut(c, false); delete o.quiz; o.my = trainStatus(ss, c, me.id); return o; });
+    var out = {ok: true, courses: mine, admin: me.admin};
+    if (me.admin) {
+      out.all = trainCourses(ss).map(function (c) { var o = courseOut(c, false); delete o.quiz; return o; });
+      out.pilots = rows(ss.getSheetByName('Pilots')).filter(function (p) { return p['Status'] !== 'Inactive'; }).map(function (p) {
+        return {id: String(p['Pilot ID']), name: p['Name'] || p['Pilot ID'], status: trainCourses(ss).filter(function (c) { return (c['Status'] || 'Active') === 'Active'; }).reduce(function (m, c) {
+          if (assignedTo(c, String(p['Pilot ID']))) m[String(c['Course ID'])] = trainStatus(ss, c, String(p['Pilot ID'])); return m; }, {})}; });
+    }
+    return out;
+  }
+  if (d.action === 'train.get') {
+    var r = findRow(C, 'Course ID', String(d.course));
+    if (!r || (!me.admin && !assignedTo(r.obj, me.id))) return {ok: false, error: 'course not found'};
+    var o = courseOut(r.obj, me.admin && d.edit); o.my = trainStatus(ss, r.obj, me.id); return {ok: true, course: o};
+  }
+  if (d.action === 'train.slides') {
+    var rs = findRow(C, 'Course ID', String(d.course));
+    if (!rs || !rs.obj['Slides file ID'] || (!me.admin && !assignedTo(rs.obj, me.id))) return {ok: false, error: 'slides not found'};
+    var bl = DriveApp.getFileById(String(rs.obj['Slides file ID'])).getBlob();
+    return {ok: true, mime: bl.getContentType(), name: rs.obj['Slides name'], data: Utilities.base64Encode(bl.getBytes())};
+  }
+  if (d.action === 'train.save') {
+    adminOnly(); lock.waitLock(20000);
+    try {
+      var f = d.course || {}, id = String(f.id || ''), old = id ? findRow(C, 'Course ID', id) : null;
+      if (!id) { var props = PropertiesService.getScriptProperties(), n = Number(props.getProperty('COURSE_NEXT') || 1); id = 'TR-' + ('00' + n).slice(-3); props.setProperty('COURSE_NEXT', String(n + 1)); }
+      var quiz = (f.quiz || []).filter(function (q) { return q && q.question && q.options && q.options.length >= 2; }).slice(0, 50).map(function (q) {
+        return {question: String(q.question).slice(0, 500), options: q.options.slice(0, 6).map(function (x) { return String(x).slice(0, 300); }),
+                answer: Math.max(0, Math.min(q.options.length - 1, Number(q.answer) || 0)), explanation: String(q.explanation || '').slice(0, 500)}; });
+      var slidesId = old ? old.obj['Slides file ID'] : '', slidesName = old ? old.obj['Slides name'] : '';
+      if (d.slides && d.slides.data) {
+        var bytes = Utilities.base64Decode(d.slides.data);
+        if (bytes.length > 25 * 1024 * 1024) return {ok: false, error: 'slides file is larger than 25 MB'};
+        var tf = folder(folder(folder(null, ROOT_FOLDER), 'Training'), id).createFile(Utilities.newBlob(bytes, 'application/pdf', String(d.slides.name || 'slides.pdf').replace(/[^\w.\- ]+/g, '_')));
+        slidesId = tf.getId(); slidesName = tf.getName();
+      }
+      if (f.removeSlides) { slidesId = ''; slidesName = ''; }
+      var vals = [id, clean(f.title, 120) || 'Untitled course', clean(f.category, 40), clean(f.description, 3000), clean(f.link, 500), slidesId, slidesName,
+                  JSON.stringify(quiz), Math.max(0, Math.min(100, Number(f.pass) || 80)), f.required ? 'Yes' : 'No', clean(f.assigned || 'All', 1000),
+                  clean(f.due, 20), f.repeat === 'Yearly' ? 'Yearly' : 'Once', f.status === 'Archived' ? 'Archived' : f.status === 'Deleted' ? 'Deleted' : 'Active',
+                  old ? old.obj['Created'] : new Date(), clean(me.name, 80)];
+      if (old) C.getRange(old.i, 1, 1, vals.length).setValues([vals]); else C.appendRow(vals);
+      return {ok: true, course: courseOut(findRow(C, 'Course ID', id).obj, true)};
+    } finally { lock.releaseLock(); }
+  }
+  if (d.action === 'train.submit') {
+    var rr = findRow(C, 'Course ID', String(d.course));
+    if (!rr || !assignedTo(rr.obj, me.id)) return {ok: false, error: 'course not found'};
+    var c = rr.obj, q = parseQuiz(c), ans = d.answers || [], right = 0, missed = [];
+    q.forEach(function (x, i) { if (Number(ans[i]) === Number(x.answer)) right++; else missed.push(i + 1); });
+    var score = q.length ? Math.round(right / q.length * 100) : 100, pass = Number(c['Pass %']) || 80, passed = score >= pass;
+    if (!passed) return {ok: true, passed: false, score: score, pass: pass, missed: missed};
+    if (!d.signature) return {ok: false, error: 'signature required'};
+    var now = new Date(), until = c['Repeat'] === 'Yearly' ? new Date(now.getFullYear() + 1, now.getMonth(), now.getDate()) : null;
+    var fmt = function (x) { return Utilities.formatDate(x, 'America/Los_Angeles', 'MM/dd/yyyy'); };
+    var pr = findRow(ss.getSheetByName('Pilots'), 'Pilot ID', me.id), pname = (pr && pr.obj['Name']) || me.name;
+    var esc = function (t) { return String(t || '').replace(/[&<>"]/g, function (ch) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch]; }); };
+    var sig = /^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(String(d.signature)) ? d.signature : '';
+    var html = '<html><body style="font-family:Helvetica,Arial,sans-serif;color:#0b1f33;margin:0;padding:48px;border:10px solid #0b1f33">' +
+      '<div style="text-align:center"><div style="color:#c8102e;font-weight:bold;letter-spacing:3px;font-size:13px">OVERHEAD UAS</div>' +
+      '<h1 style="font-size:34px;margin:14px 0 6px">Certificate of Training Completion</h1><p style="color:#5b6b7a;margin:0 0 28px">This certifies that</p>' +
+      '<div style="font-size:28px;font-weight:bold;border-bottom:2px solid #9aa7b3;display:inline-block;padding:0 30px 6px">' + esc(pname) + '</div>' +
+      '<p style="color:#5b6b7a;margin:26px 0 6px">has successfully completed</p><div style="font-size:22px;font-weight:bold">' + esc(c['Title']) + '</div>' +
+      '<p style="margin:8px 0 0;color:#5b6b7a">' + esc(c['Category'] || 'Training') + ' · ' + String(c['Course ID']) + '</p>' +
+      '<p style="margin:26px 0 0">Score: <b>' + score + '%</b> (pass ' + pass + '%) &nbsp;·&nbsp; Completed: <b>' + fmt(now) + '</b>' + (until ? ' &nbsp;·&nbsp; Valid until: <b>' + fmt(until) + '</b>' : '') + '</p>' +
+      (sig ? '<div style="margin-top:28px"><img src="' + sig + '" style="height:60px"><div style="border-top:1px solid #9aa7b3;width:260px;margin:4px auto 0;font-size:12px;color:#5b6b7a">Pilot signature</div></div>' : '') +
+      '<p style="margin-top:30px;font-size:11px;color:#5b6b7a">Overhead UAS · www.overheaduas.com · (760) 527-3267 · Electronically signed in the Overhead UAS Pilot Portal</p></div></body></html>';
+    var pdf = Utilities.newBlob(html, 'text/html', 'cert.html').getAs('application/pdf');
+    pdf.setName(('Training_' + c['Title'] + '_' + fmt(now)).replace(/[^\w.\- ]+/g, '_') + '.pdf');
+    var file = pilotFolder(pname, me.id).createFile(pdf);
+    X.appendRow([String(c['Course ID']), clean(c['Title'], 120), me.id, clean(pname, 80), score, 'Yes', now, until || '', file.getId()]);
+    ss.getSheetByName('Documents').appendRow([file.getId(), me.id, 'Other certificate', clean('Training: ' + c['Title'], 120), '', '', until ? fmt(until) : '', file.getName(), now, clean(pname, 80), 'Active']);
+    return {ok: true, passed: true, score: score, pass: pass, certificate: file.getId(), until: until ? fmt(until) : ''};
+  }
+  if (d.action === 'train.ai') { adminOnly(); return aiQuiz(d, C); }
+  return {ok: false, error: 'unknown action'};
+}
+
+// ----- AI quiz writer (Claude API). Needs ANTHROPIC_API_KEY in Project Settings > Script Properties.
+function aiQuiz(d, C) {
+  var key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  if (!key) return {ok: false, error: 'AI quiz writer is not set up yet: add ANTHROPIC_API_KEY in Apps Script Project Settings > Script Properties'};
+  var n = Math.max(3, Math.min(20, Number(d.count) || 10)), content = [], text = String(d.text || '').slice(0, 150000);
+  var fileId = d.slidesId || '';
+  if (!fileId && d.course) { var r = findRow(C, 'Course ID', String(d.course)); if (r) fileId = r.obj['Slides file ID'] || ''; }
+  if (fileId) {
+    var bl = DriveApp.getFileById(String(fileId)).getBlob();
+    if (bl.getBytes().length > 30 * 1024 * 1024) return {ok: false, error: 'slides PDF is too large for the AI writer (30 MB max)'};
+    content.push({type: 'document', source: {type: 'base64', media_type: 'application/pdf', data: Utilities.base64Encode(bl.getBytes())}});
+  }
+  if (!fileId && text.length < 200) return {ok: false, error: 'Add the training material first: upload the slides PDF or paste the video transcript / notes'};
+  content.push({type: 'text', text:
+    (text ? 'Training material (transcript or notes):\n<material>\n' + text + '\n</material>\n\n' : '') +
+    'You write quizzes for Overhead UAS, a commercial drone (FAA Part 107) company. Course: "' + String(d.title || '').slice(0, 200) + '".\n' +
+    'Write exactly ' + n + ' multiple-choice questions that check a pilot understood the important points of the material above' + (fileId ? ' (the attached slides' + (text ? ' and the notes' : '') + ')' : '') + '. ' +
+    'Base every question only on the material - do not add facts it does not contain. Each question has exactly 4 options with one correct answer; ' +
+    'make the wrong options plausible, avoid "all of the above" / "none of the above", and vary the position of the correct answer. ' +
+    '"answer" is the 0-based index of the correct option. "explanation" is one short sentence saying why it is correct.'});
+  var schema = {type: 'object', additionalProperties: false, required: ['questions'], properties: {questions: {type: 'array', items: {type: 'object', additionalProperties: false,
+    required: ['question', 'options', 'answer', 'explanation'], properties: {question: {type: 'string'}, options: {type: 'array', items: {type: 'string'}}, answer: {type: 'integer'}, explanation: {type: 'string'}}}}}};
+  var res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    headers: {'x-api-key': key, 'anthropic-version': '2026-10-21', 'anthropic-beta': 'server-side-fallback-2026-07-01'},
+    payload: JSON.stringify({model: 'claude-opus-5-5', max_tokens: 16000, fallbacks: 'default',
+      output_config: {effort: 'low', format: {type: 'json_schema', schema: schema}},
+      messages: [{role: 'user', content: content}]})});
+  var code = res.getResponseCode(), j = {};
+  try { j = JSON.parse(res.getContentText()); } catch (e) {}
+  if (code !== 200) return {ok: false, error: 'AI service error ' + code + (j.error && j.error.message ? ': ' + j.error.message : '')};
+  if (j.stop_reason === 'refusal') return {ok: false, error: 'The AI declined to write this quiz. Write the questions manually.'};
+  if (j.stop_reason === 'max_tokens') return {ok: false, error: 'The AI ran out of room. Try fewer questions or shorter material.'};
+  var out = (j.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('');
+  var qs; try { qs = JSON.parse(out).questions || []; } catch (e) { return {ok: false, error: 'The AI reply could not be read. Try again.'}; }
+  qs = qs.filter(function (q) { return q.question && q.options && q.options.length >= 2 && q.answer >= 0 && q.answer < q.options.length; });
+  return {ok: true, questions: qs, usage: j.usage || {}};
 }
