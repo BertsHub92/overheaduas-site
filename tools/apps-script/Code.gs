@@ -1,17 +1,18 @@
 /**
  * Overhead UAS - signed agreement receiver (Google Apps Script web app)
  *
- * Receives signed agreements from the Pilot Portal, then:
- *   1. saves the PDF to Google Drive: "Overhead UAS Signed Agreements/<YYYY-MM>/"
+ * Receives signed forms from the Pilot Portal (service agreements, mission
+ * sheets, incident reports), then:
+ *   1. saves the PDF to Google Drive: "Overhead UAS Records/<form type>/<YYYY-MM>/"
  *   2. emails it to Overhead UAS
- *   3. emails a copy to the client (if an email was entered)
+ *   3. emails a copy to the client (service agreements, if an email was entered)
  *
  * Setup: see the instructions Claude provided. Deploy as a Web app,
  * "Execute as: Me", "Who has access: Anyone".
  */
 var TOKEN = 'PASTE_TOKEN_HERE';          // must match the Pilot Portal
 var OFFICE_EMAIL = 'overheaduas@gmail.com';
-var ROOT_FOLDER = 'Overhead UAS Signed Agreements';
+var ROOT_FOLDER = 'Overhead UAS Records';
 
 function doPost(e) {
   try {
@@ -24,11 +25,14 @@ function doPost(e) {
 
     // 1. Save to Drive
     var month = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM');
-    var file = folder(folder(null, ROOT_FOLDER), month).createFile(blob);
+    var type = String(data.folder || 'Service Agreements').replace(/[\/\\]+/g, '-').slice(0, 80);
+    var file = folder(folder(folder(null, ROOT_FOLDER), type), month).createFile(blob);
 
     // 2. Email Overhead UAS
     var s = data.summary || {};
-    var lines = [
+    var lines = data.lines && data.lines.length ? [
+      (data.intro || 'A new form was submitted through the Pilot Portal.'), ''
+    ].concat(data.lines.map(String), ['', 'Document ID: ' + (data.docId || '-'), 'Saved to Google Drive: ' + file.getUrl()]) : [
       'A new agreement was signed through the Pilot Portal.', '',
       'Client: ' + (s.client || '-'),
       'Site: ' + (s.site || '-'),
@@ -39,7 +43,8 @@ function doPost(e) {
       'Client email: ' + (data.clientEmail || '(none)'), '',
       'Saved to Google Drive: ' + file.getUrl()
     ];
-    GmailApp.sendEmail(OFFICE_EMAIL, 'Signed agreement: ' + (s.client || name), lines.join('\n'),
+    var subject = data.subject ? String(data.subject).slice(0, 200) : 'Signed agreement: ' + (s.client || name);
+    GmailApp.sendEmail(OFFICE_EMAIL, subject, lines.join('\n'),
       {attachments: [blob], name: 'Overhead UAS Pilot Portal'});
 
     // 3. Copy to client

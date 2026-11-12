@@ -72,6 +72,19 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .fill textarea,.fill select{width:100%;background:#0a1520;border:1px solid #23394f;border-radius:10px;padding:11px 12px;color:var(--text);font:15px Inter,sans-serif}
+  .fill textarea{resize:vertical;min-height:70px}
+  .fill textarea:focus,.fill select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(75,163,227,.18)}
+  .radios{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .radios label{display:flex;gap:8px;align-items:center;margin:0;color:var(--text);font-size:15px;cursor:pointer}
+  .radios input{width:18px;height:18px;accent-color:var(--blue)}
+  .radio-label{font-size:13px;color:var(--muted);font-weight:500}
+  .radios.invalid{outline:2px solid var(--err);outline-offset:6px;border-radius:6px}
+  .sig.sketch .sig-preview{height:180px;background:#fff radial-gradient(#cfd6dd 1px,transparent 1.2px) 0 0/14px 14px}
+  .sig.sketch .sig-preview img{max-height:170px}
+  .pad-n{position:absolute;right:12px;top:8px;color:#0b1f33;font:700 13px Inter;pointer-events:none}
+  .pad.sketching .pad-area{height:min(68vh,520px);background:#fff radial-gradient(#d5dce3 1px,transparent 1.2px) 0 0/16px 16px}
+  .pad.sketching .pad-box{width:min(900px,100%)}
   .fill .invalid,.fill input.invalid{border-color:var(--err) !important;box-shadow:0 0 0 3px rgba(239,59,69,.15)}
   .checks.invalid{outline:2px solid var(--err);outline-offset:6px;border-radius:6px}
   .sigs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -251,40 +264,56 @@
     box._sigs = {};
     let html = '';
     for (const sec of F.sections) {
-      html += `<h4>${esc(sec.title)}</h4>`;
+      if (sec.title) html += `<h4>${esc(sec.title)}</h4>`;
+      if (sec.radio) {
+        html += `<div class="radios" data-group="${sec.radio.group}"><span class="radio-label">${esc(sec.radio.l)}${(F.requireGroups || []).includes(sec.radio.group) ? ' <span class="req">*</span>' : ''}</span>` +
+          sec.radio.options.map(o => `<label><input type="radio" name="r_${sec.radio.group}" data-c="${o.c}">${esc(o.l)}</label>`).join('') + '</div>';
+      }
       if (sec.fields) {
         html += '<div class="grid2">';
         for (const fd of sec.fields) {
-          const type = fd.t === 'date' ? 'date' : fd.t === 'money' ? 'number' : fd.t || 'text';
+          const type = fd.t === 'date' ? 'date' : fd.t === 'time' ? 'time' : fd.t === 'money' ? 'number' : fd.t || 'text';
           const extra = fd.t === 'money' ? ' step="0.01" min="0" inputmode="decimal"' : '';
-          html += `<div class="${fd.wide ? 'wide' : ''}"><label for="fx_${fd.n}">${esc(fd.l)}${req.has(fd.n) ? ' <span class="req">*</span>' : ''}</label><input id="fx_${fd.n}" data-n="${fd.n}" data-t="${fd.t || ''}" type="${type}"${extra} placeholder="${esc(fd.ph || '')}"></div>`;
+          const lab = `<label for="fx_${fd.n}">${esc(fd.l)}${req.has(fd.n) ? ' <span class="req">*</span>' : ''}</label>`;
+          const attrs = `id="fx_${fd.n}" data-n="${fd.n}" data-t="${fd.t || ''}"`;
+          let input;
+          if (fd.t === 'area') input = `<textarea ${attrs} rows="${fd.rows || 3}" placeholder="${esc(fd.ph || '')}"></textarea>`;
+          else if (fd.t === 'select') input = `<select ${attrs}>${(fd.options || []).map(o => `<option>${esc(o)}</option>`).join('')}</select>`;
+          else input = `<input ${attrs} type="${type}"${extra} placeholder="${esc(fd.ph || '')}">`;
+          html += `<div class="${fd.wide ? 'wide' : ''}">${lab}${input}</div>`;
         }
         html += '</div>';
       }
       if (sec.checks) {
-        html += `<div class="checks" data-group="services">` + sec.checks.map(c => `<label><input type="checkbox" data-c="${c.n}">${esc(c.l)}</label>`).join('') + '</div>';
+        html += `<div data-group="${sec.group || 'services'}"><div class="checks">` + sec.checks.map(c => `<label><input type="checkbox" data-c="${c.n}">${esc(c.l)}</label>`).join('') + '</div>';
         if (sec.other) html += `<div class="other-row"><label><input type="checkbox" data-c="${sec.other.check}">Other:</label><input type="text" data-n="${sec.other.text}" data-auto="${sec.other.check}" placeholder="Describe"></div>`;
+        html += '</div>';
       }
       if (sec.note) html += `<p class="note">${esc(sec.note)}</p>`;
     }
     if (F.signatures) {
-      html += `<h4>Signatures</h4><div class="sigs">` + F.signatures.map(s => `
+      const sk = F.signatures.filter(s => s.kind === 'sketch'), sg = F.signatures.filter(s => s.kind !== 'sketch');
+      sk.forEach(s => { html += `<h4>${esc(s.label)}</h4><div class="sig sketch" data-sig="${s.key}">
+          <div class="sig-preview"><span>${esc(s.empty || 'No sketch yet')}</span></div>
+          <div class="sig-row"><span class="sig-label">${esc(s.label)}${s.optional ? ' (optional)' : ' <span class="req">*</span>'}</span>
+          <button class="btn btn-ghost sig-btn" type="button" data-sign="${s.key}">${esc(s.button || 'Draw')}</button></div></div>`; });
+      if (sg.length) html += `<h4>Signature${sg.length > 1 ? 's' : ''}</h4><div class="sigs">` + sg.map(s => `
         <div class="sig" data-sig="${s.key}">
           <div class="sig-preview"><span>Not signed yet</span></div>
           <div class="sig-row"><span class="sig-label">${esc(s.label)} signature <span class="req">*</span></span>
           <button class="btn btn-ghost sig-btn" type="button" data-sign="${s.key}">${esc(s.label)} sign</button></div>
         </div>`).join('') + `</div>`;
     }
-    html += `<label class="remember"><input type="checkbox" id="fx_remember">Remember my pilot name &amp; FAA cert # on this device</label>
+    html += `<label class="remember"><input type="checkbox" id="fx_remember">Remember my pilot info on this device</label>
       <p class="msg err" data-role="err" hidden></p>
       <div class="fill-actions">
-        ${F.signatures ? '<button class="btn btn-primary" data-go="submit">Submit signed agreement</button>' : ''}
+        ${F.signatures ? `<button class="btn btn-primary" data-go="submit">${esc(F.submitLabel || 'Submit')}</button>` : ''}
         <button class="btn ${F.signatures ? 'btn-ghost' : 'btn-primary'}" data-go="print">Print${F.signatures ? ' unsigned' : ' filled form'}</button>
         <button class="btn btn-ghost" data-go="download">Download${F.signatures ? ' unsigned' : ' filled PDF'}</button>
         <button class="btn btn-ghost" data-go="clear">Clear</button>
       </div>
       <div class="done" data-role="done" hidden></div>
-      <p class="note">${F.signatures ? 'Submit emails the signed agreement to Overhead UAS (and a copy to the client if their email is entered) and saves it for safe keeping. ' : ''}Print and Download stay on this device.</p>`;
+      <p class="note">${F.signatures ? esc(F.submitNote || 'Submit emails the signed form to Overhead UAS and saves it for safe keeping.') + ' ' : ''}Print and Download stay on this device.</p>`;
     box.innerHTML = html;
     card.appendChild(box);
 
@@ -299,18 +328,18 @@
     });
     box.querySelectorAll('[data-auto]').forEach(t => t.addEventListener('input', () => { const c = q(`[data-c="${t.dataset.auto}"]`); if (c) c.checked = !!t.value.trim(); }));
     box.addEventListener('input', e => e.target.classList.remove('invalid'));
-    box.addEventListener('change', e => { if (e.target.dataset.c) q('[data-group=services]')?.classList.remove('invalid'); });
+    box.addEventListener('change', e => { if (e.target.dataset.c) e.target.closest('[data-group]')?.classList.remove('invalid'); });
 
     (F.signatures || []).forEach(s => {
       q(`[data-sign="${s.key}"]`).onclick = () => {
         const name = field(s.nameField)?.value.trim() || '';
         signaturePad(s.label, name, png => {
           const when = nowStamp();
-          box._sigs[s.key] = {png, when, name, date: todayIso()};
+          box._sigs[s.key] = {png, when, name, date: todayIso(), kind: s.kind};
           const el = q(`[data-sig="${s.key}"]`); el.classList.remove('invalid'); el.classList.add('signed');
-          el.querySelector('.sig-preview').innerHTML = `<img alt="${esc(s.label)} signature" src="${png}"><small>Signed ${esc(when)}</small>`;
-          q(`[data-sign="${s.key}"]`).textContent = 'Redo';
-        });
+          el.querySelector('.sig-preview').innerHTML = `<img alt="${esc(s.label)}" src="${png}">` + (s.kind === 'sketch' ? '' : `<small>Signed ${esc(when)}</small>`);
+          q(`[data-sign="${s.key}"]`).textContent = s.kind === 'sketch' ? 'Edit sketch' : 'Redo';
+        }, s.kind === 'sketch' ? {sketch: true, prev: box._sigs[s.key]?.png, aspect: s.aspect} : {});
       };
     });
 
@@ -321,18 +350,20 @@
       if (!confirm('Clear everything on this form, including signatures?')) return;
       box.remove(); openFill(f, card);
     };
-    q('input[data-n]')?.focus();
+    q('[data-n]')?.focus();
   }
 
   // Full-screen signature pad. Calls done(pngDataUrl) when the signer taps Done.
-  function signaturePad(label, name, done) {
-    const ov = document.createElement('div'); ov.className = 'pad';
-    ov.innerHTML = `<div class="pad-box">
+  function signaturePad(label, name, done, opt = {}) {
+    const ov = document.createElement('div'); ov.className = 'pad' + (opt.sketch ? ' sketching' : '');
+    ov.innerHTML = opt.sketch ? `<div class="pad-box">
+        <div class="pad-head"><b>${esc(label)}</b><span>Draw with your finger. N is up. Tip: turn your phone sideways for a bigger area.</span></div>
+        <div class="pad-area"${opt.aspect ? ` style="aspect-ratio:${opt.aspect};height:auto;max-height:68vh"` : ''}><canvas></canvas><span class="pad-n">N &#9650;</span><span class="pad-hint">Draw the flight area, launch point, obstacles…</span></div>`
+      : `<div class="pad-box">
         <div class="pad-head"><b>${esc(label)} signature</b>${name ? `<span>${esc(name)}</span>` : ''}</div>
         <div class="pad-area"><canvas></canvas><div class="pad-line"></div><span class="pad-x">&times;</span><span class="pad-hint">Sign here with your finger</span></div>
-        <p class="pad-consent">By signing, I agree to sign this agreement electronically and that my electronic signature has the same effect as a handwritten signature.</p>
-        <div class="pad-actions"><button class="btn btn-ghost" data-p="cancel">Cancel</button><button class="btn btn-ghost" data-p="clear">Clear</button><button class="btn btn-primary" data-p="done">Done</button></div>
-      </div>`;
+        <p class="pad-consent">By signing, I agree to sign this form electronically and that my electronic signature has the same effect as a handwritten signature.</p>`;
+    ov.querySelector('.pad-box').insertAdjacentHTML('beforeend', `<div class="pad-actions"><button class="btn btn-ghost" data-p="cancel">Cancel</button><button class="btn btn-ghost" data-p="clear">Clear</button><button class="btn btn-primary" data-p="done">Done</button></div>`);
     document.body.appendChild(ov); document.body.style.overflow = 'hidden';
     const cv = ov.querySelector('canvas'), area = ov.querySelector('.pad-area'), ctx = cv.getContext('2d');
     let drawing = false, last = null, inked = false, box = null;
@@ -340,10 +371,12 @@
       const r = area.getBoundingClientRect(), d = Math.max(2, window.devicePixelRatio || 1);
       const img = inked ? cv.toDataURL() : null;
       cv.width = r.width * d; cv.height = r.height * d; cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px';
-      ctx.setTransform(d, 0, 0, d, 0, 0); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0b1f33'; ctx.lineWidth = 3.2;
+      ctx.setTransform(d, 0, 0, d, 0, 0); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0b1f33'; ctx.lineWidth = opt.sketch ? 2.6 : 3.2;
       if (img) { const i = new Image(); i.onload = () => ctx.drawImage(i, 0, 0, r.width, r.height); i.src = img; }
     };
     size(); window.addEventListener('resize', size);
+    if (opt.prev) { const i = new Image(); i.onload = () => { const r = area.getBoundingClientRect(); ctx.drawImage(i, 0, 0, r.width, r.height); inked = true; box = {x0: 0, y0: 0, x1: r.width, y1: r.height}; ov.querySelector('.pad-hint').hidden = true; }; i.src = opt.prev; }
+    if (opt.sketch) ctx.lineWidth = 2.6;
     const pt = e => { const r = cv.getBoundingClientRect(); return {x: e.clientX - r.left, y: e.clientY - r.top}; };
     const grow = p => { box = box ? {x0: Math.min(box.x0, p.x), y0: Math.min(box.y0, p.y), x1: Math.max(box.x1, p.x), y1: Math.max(box.y1, p.y)} : {x0: p.x, y0: p.y, x1: p.x, y1: p.y}; };
     cv.addEventListener('pointerdown', e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); drawing = true; last = pt(e); grow(last); ctx.beginPath(); ctx.arc(last.x, last.y, 1.6, 0, 7); ctx.fillStyle = '#0b1f33'; ctx.fill(); inked = true; ov.querySelector('.pad-hint').hidden = true; });
@@ -354,7 +387,8 @@
     ov.querySelector('[data-p=cancel]').onclick = close;
     ov.querySelector('[data-p=clear]').onclick = () => { ctx.clearRect(0, 0, cv.width, cv.height); inked = false; box = null; ov.querySelector('.pad-hint').hidden = false; };
     ov.querySelector('[data-p=done]').onclick = () => {
-      if (!inked || !box || (box.x1 - box.x0 < 25 && box.y1 - box.y0 < 12)) { ov.querySelector('.pad-hint').hidden = false; ov.querySelector('.pad-hint').textContent = 'Please sign before tapping Done'; return; }
+      if (!inked || !box || (box.x1 - box.x0 < 25 && box.y1 - box.y0 < 12)) { ov.querySelector('.pad-hint').hidden = false; ov.querySelector('.pad-hint').textContent = opt.sketch ? 'Draw something before tapping Done' : 'Please sign before tapping Done'; return; }
+      if (opt.sketch) { const full = cv.toDataURL('image/png'); close(); done(full); return; }
       const d = Math.max(2, window.devicePixelRatio || 1), pad = 6;
       const x = Math.max(0, (box.x0 - pad) * d), y = Math.max(0, (box.y0 - pad) * d);
       const w = Math.min(cv.width - x, (box.x1 - box.x0 + pad * 2) * d), h = Math.min(cv.height - y, (box.y1 - box.y0 + pad * 2) * d);
@@ -373,8 +407,9 @@
       if (!bad && el.type === 'email') bad = !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(el.value.trim());
       if (bad) { el.classList.add('invalid'); missing.push(el); }
     });
-    if (F.requireService && !box.querySelector('[data-c]:checked')) { const g = box.querySelector('[data-group=services]'); g.classList.add('invalid'); missing.push(g); }
-    (F.signatures || []).forEach(s => { if (!box._sigs[s.key]) { const el = box.querySelector(`[data-sig="${s.key}"]`); el.classList.add('invalid'); missing.push(el); } });
+    const groups = [...(F.requireGroups || []), ...(F.requireService ? ['services'] : [])];
+    groups.forEach(g => { const el = box.querySelector(`[data-group="${g}"]`); if (el && !el.querySelector('[data-c]:checked')) { el.classList.add('invalid'); missing.push(el); } });
+    (F.signatures || []).forEach(s => { if (!s.optional && !box._sigs[s.key]) { const el = box.querySelector(`[data-sig="${s.key}"]`); el.classList.add('invalid'); missing.push(el); } });
     const err = box.querySelector('[data-role=err]');
     if (missing.length) {
       err.hidden = false; err.textContent = `Please complete the ${missing.length} highlighted item${missing.length > 1 ? 's' : ''} before submitting.`;
@@ -390,6 +425,7 @@
     const v = {};
     box.querySelectorAll('[data-n]').forEach(i => {
       let x = i.value.trim(); if (i.dataset.t === 'date') x = usDate(x);
+      if (i.dataset.t === 'time' && /^\d{2}:\d{2}/.test(x)) { const [hh, mm] = x.split(':').map(Number); x = `${(hh % 12) || 12}:${String(mm).padStart(2, '0')} ${hh < 12 ? 'AM' : 'PM'}`; }
       if (i.dataset.t === 'money' && x) x = Number(x).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
       v[i.dataset.n] = x;
     });
@@ -414,26 +450,62 @@
     const {PDFDocument, StandardFonts} = await loadPdfLib();
     const doc = await PDFDocument.load(await open(K, await fetchBytes('portal/' + f.id + '.bin'), f.id));
     const form = doc.getForm();
+    const lined = Object.fromEntries((f.fill.lined || []).map(l => [l.field, l]));
+    const linedDraw = [];
     for (const [n, v] of Object.entries(pdfValues(f, box))) {
+      if (lined[n] && v) { linedDraw.push([lined[n], v]); continue; }
       try { const t = form.getTextField(n); t.setMaxLength(undefined); t.setText(v); } catch (e) {}
+    }
+    // Text written onto ruled lines (e.g. the incident narrative) so it sits on the printed lines
+    if (linedDraw.length) {
+      const font = await doc.embedFont(StandardFonts.Helvetica), pages0 = doc.getPages();
+      for (const [L, text] of linedDraw) {
+        let tf; try { tf = form.getTextField(L.field); } catch (e) { continue; }
+        const w = tf.acroField.getWidgets()[0], r = w.getRectangle(), ref = doc.context.getObjectRef(w.dict);
+        const page = pages0.find(p => (p.node.Annots()?.asArray() || []).some(a => a === ref)) || pages0[0];
+        const top = r.y + r.height + (L.pad || 2), bottom = r.y + 4, maxW = r.width - 12;
+        const wrap = size => { const out = []; for (const para of text.split(/\n/)) { let line = ''; for (const word of para.split(/\s+/)) { const t = line ? line + ' ' + word : word; if (font.widthOfTextAtSize(t, size) > maxW && line) { out.push(line); line = word; } else line = t; } out.push(line); } return out; };
+        let size = 10, gap = L.gap, lines = wrap(size);
+        for (const [sz, g] of [[10, L.gap], [8, L.gap / 2], [6.5, L.gap / 2.5]]) { size = sz; gap = g; lines = wrap(sz); if (top - gap * lines.length - 2 >= bottom - gap * 0.2) break; }
+        lines.forEach((l, i) => { const y = top - L.first - i * gap + 3; if (y > bottom - 2) page.drawText(l, {x: r.x + 6, y, size, font, color: PDFLib.rgb(0, 0, 0)}); });
+        form.removeField(tf);
+      }
     }
     box.querySelectorAll('[data-c]').forEach(c => { try { const cb = form.getCheckBox(c.dataset.c); c.checked ? cb.check() : cb.uncheck(); } catch (e) {} });
     let docId = '';
-    if (signed) {
-      docId = 'OUAS-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
-      const pages = doc.getPages(), parts = [];
-      for (const s of f.fill.signatures) {
-        const sig = box._sigs[s.key]; if (!sig) continue;
-        const tf = form.getTextField(s.field), widget = tf.acroField.getWidgets()[0], r = widget.getRectangle();
-        const ref = doc.context.getObjectRef(widget.dict);
-        const page = pages.find(p => (p.node.Annots()?.asArray() || []).some(a => a === ref)) || pages[pages.length - 1];
-        const img = await doc.embedPng(sig.png);
-        const hMax = 30, wMax = r.width * 0.7, sc = Math.min(hMax / img.height, wMax / img.width);
+    const pages = doc.getPages(), parts = [];
+    if (signed) docId = 'OUAS-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+    for (const s of (f.fill.signatures || [])) {
+      const sig = box._sigs[s.key];
+      if (!sig || (s.kind !== 'sketch' && !signed)) continue;
+      let tf; try { tf = form.getTextField(s.field); } catch (e) { continue; }
+      const widget = tf.acroField.getWidgets()[0], r = widget.getRectangle();
+      const ref = doc.context.getObjectRef(widget.dict);
+      const page = pages.find(p => (p.node.Annots()?.asArray() || []).some(a => a === ref)) || pages[pages.length - 1];
+      const img = await doc.embedPng(sig.png);
+      if (s.kind === 'sketch') {
+        const sc = Math.min((r.width - 4) / img.width, (r.height - 4) / img.height);
+        const w = img.width * sc, h = img.height * sc;
+        page.drawImage(img, {x: r.x + (r.width - w) / 2, y: r.y + (r.height - h) / 2, width: w, height: h});
+      } else {
+        const hMax = s.hMax || 30, wMax = r.width * 0.7, sc = Math.min(hMax / img.height, wMax / img.width);
         page.drawImage(img, {x: r.x + 4, y: r.y - 2, width: img.width * sc, height: img.height * sc});
-        form.removeField(tf);
         parts.push(`${s.label}: ${sig.name || '(name not entered)'}, signed ${sig.when}`);
       }
-      try { const t = form.getTextField(f.fill.audit || 'esign_record'); t.setMaxLength(undefined); t.setText(`Electronically signed via the Overhead UAS Pilot Portal (overheaduas.com). ${parts.join('. ')}. Document ID: ${docId}`); } catch (e) {}
+      form.removeField(tf);
+    }
+    if (signed) {
+      const record = `Electronically signed via the Overhead UAS Pilot Portal (overheaduas.com). ${parts.join('. ')}. Document ID: ${docId}`;
+      let placed = false;
+      try { const t = form.getTextField(f.fill.audit || 'esign_record'); t.setMaxLength(undefined); t.setText(record); placed = true; } catch (e) {}
+      if (!placed) {
+        const font = await doc.embedFont(StandardFonts.Helvetica), pg = pages[pages.length - 1], {width} = pg.getSize();
+        const size = 5.6, maxW = width - 54, words = record.split(' '), lines = [];
+        let line = '';
+        for (const w of words) { const t = line ? line + ' ' + w : w; if (font.widthOfTextAtSize(t, size) > maxW) { lines.push(line); line = w; } else line = t; }
+        lines.push(line);
+        lines.forEach((l, i) => pg.drawText(l, {x: 27, y: 4 + (lines.length - 1 - i) * 6.6, size, font, color: PDFLib.rgb(0.36, 0.42, 0.48)}));
+      }
     }
     form.updateFieldAppearances(await doc.embedFont(StandardFonts.Helvetica));
     if (flatten) form.flatten();
@@ -474,15 +546,21 @@
       const name = `${fileName(f, box)}_SIGNED_${usDate(todayIso()).replace(/\//g, '-')}.pdf`;
       const file = new File([bytes], name, {type: 'application/pdf'});
       const url = URL.createObjectURL(file);
-      const services = [...box.querySelectorAll('[data-c]:checked')].map(c => c.parentElement.textContent.trim().replace(/:$/, '') === 'Other' ? 'Other: ' + val('svc_other_text') : c.parentElement.textContent.trim()).join(', ');
-      const clientEmail = val('client_email');
+      const E = f.fill.email || {}, V = pdfValues(f, box);
+      V.services = [...box.querySelectorAll('[data-group=services] [data-c]:checked')].map(c => c.parentElement.textContent.trim().replace(/:$/, '') === 'Other' ? 'Other: ' + val('svc_other_text') : c.parentElement.textContent.trim()).join(', ');
+      box.querySelectorAll('.radios').forEach(g => { const c = g.querySelector('[data-c]:checked'); V['radio_' + g.dataset.group] = c ? c.parentElement.textContent.trim() : ''; });
+      const fillT = t => { const out = String(t || '').replace(/\{(\w+)\}/g, (_, k) => V[k] || '').replace(/\s+/g, ' ').trim(); return /[A-Za-z0-9]/.test(out) ? out : '-'; };
+      const clientEmail = E.clientCopy ? val('client_email') : '';
+      const docLabel = f.fill.docLabel || 'form';
       let sent = null, err = '';
       const S = f.fill.submit;
       if (S && S.url) {
         try {
           const res = await fetch(S.url, {method: 'POST', body: JSON.stringify({
             token: S.token, filename: name, pdf: toB64(bytes), clientEmail, docId,
-            summary: {client: pdfValues(f, box).client_company, clientName: val('client_name'), site: val('site_address'), dates: val('flight_dates'), services, cost: val('job_cost'), pilot: val('pilot_name')}
+            subject: fillT(E.subject || f.title), folder: E.folder || f.title, intro: E.intro || '',
+            lines: (E.lines || []).map(([lab, t]) => `${lab}: ${fillT(t).slice(0, 600)}`),
+            summary: {client: V.client_company, clientName: V.client_name, site: V.site_address, dates: V.flight_dates, services: V.services, cost: V.job_cost, pilot: V.pilot_name}
           })});
           sent = await res.json();
           if (!sent.ok) { err = sent.error || 'unknown error'; sent = null; }
@@ -491,20 +569,20 @@
       box.querySelector('.fill-actions').hidden = true;
       doneEl.hidden = false;
       doneEl.innerHTML = sent
-        ? `<p class="ok-msg"><b>&#10003; Signed agreement submitted.</b> Emailed to Overhead UAS${sent.sentClient ? ' and a copy to ' + esc(clientEmail) : ''}, and saved for safe keeping.</p>`
-        : `<p class="err-msg"><b>The agreement is signed, but it couldn't be emailed automatically</b> (${esc(err)}). Use <b>Share / email</b> below to send it to overheaduas@gmail.com${clientEmail ? ' and ' + esc(clientEmail) : ''}, or download it.</p>`;
+        ? `<p class="ok-msg"><b>&#10003; Signed ${esc(docLabel)} submitted.</b> Emailed to Overhead UAS${sent.sentClient ? ' and a copy to ' + esc(clientEmail) : ''}, and saved for safe keeping.</p>`
+        : `<p class="err-msg"><b>The ${esc(docLabel)} is signed, but it couldn't be emailed automatically</b> (${esc(err)}). Use <b>Share / email</b> below to send it to overheaduas@gmail.com${clientEmail ? ' and ' + esc(clientEmail) : ''}, or download it.</p>`;
       doneEl.innerHTML += `<p class="note">Document ID: ${esc(docId)}</p>
-        <div class="fill-actions"><button class="btn ${sent ? 'btn-ghost' : 'btn-primary'}" data-d="share">Share / email</button><button class="btn btn-ghost" data-d="dl">Download signed copy</button><button class="btn btn-ghost" data-d="new">Start a new agreement</button></div>`;
+        <div class="fill-actions"><button class="btn ${sent ? 'btn-ghost' : 'btn-primary'}" data-d="share">Share / email</button><button class="btn btn-ghost" data-d="dl">Download signed copy</button><button class="btn btn-ghost" data-d="new">Start a new ${esc(docLabel)}</button></div>`;
       doneEl.querySelector('[data-d=dl]').onclick = () => saveBlob(url, name);
       doneEl.querySelector('[data-d=share]').onclick = async () => {
-        const r = await shareFile(file, 'Signed Overhead UAS service agreement');
+        const r = await shareFile(file, 'Signed Overhead UAS ' + docLabel);
         if (r === false) { saveBlob(url, name); alert('Sharing isn\'t available on this device, so the signed PDF was downloaded. Attach it to an email to overheaduas@gmail.com.'); }
       };
       doneEl.querySelector('[data-d=new]').onclick = () => { const card = box.parentElement; box.remove(); openFill(f, card); card.scrollIntoView({behavior: 'smooth'}); };
-      box.querySelectorAll('input, [data-sign]').forEach(i => i.disabled = true);
+      box.querySelectorAll('input, textarea, select, [data-sign]').forEach(i => i.disabled = true);
       doneEl.scrollIntoView({behavior: 'smooth', block: 'center'});
     } catch (e) {
-      alert('Sorry, the signed agreement could not be created. Please try again.');
+      alert('Sorry, the signed form could not be created. Please try again.');
       btn.disabled = false; btn.textContent = label;
     }
   }
