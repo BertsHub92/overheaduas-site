@@ -82,6 +82,20 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .tiles{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px}
+  @media (min-width:640px){.tiles{grid-template-columns:1fr 1fr}}
+  .tile{display:flex;align-items:center;gap:14px;padding:18px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);text-decoration:none;color:var(--text);transition:.15s}
+  .tile:hover{border-color:var(--blue)}
+  .tile-ic{width:50px;height:50px;border-radius:12px;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue);flex:none}
+  .tile-body{flex:1}
+  .tile h3{font-size:18px;margin-bottom:2px}
+  .tile p{font-size:14px;color:var(--muted);line-height:1.4}
+  .tile-meta{display:inline-block;margin-top:6px;font-size:12px;font-weight:600;color:var(--blue)}
+  .tile-go{font-size:30px;color:var(--muted2);line-height:1}
+  .view-head{display:flex;align-items:center;gap:12px;margin:14px 0 2px}
+  .view-head h2{font-size:22px}
+  .back-btn{display:inline-flex;align-items:center;padding:7px 14px;border:1px solid var(--line2);border-radius:999px;font-size:14px;font-weight:600;text-decoration:none;color:var(--text)}
+  .back-btn:hover{border-color:var(--blue);color:var(--blue)}
   .rgrid{display:grid;grid-template-columns:1fr;gap:6px;margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
   .rgrid .radio-label{font-weight:600;color:var(--text);font-size:14px}
   .rgrid label{font-size:14px}
@@ -245,8 +259,23 @@
       <span class="welcome">&#10003; Signed in</span>
       <button class="btn btn-ghost" id="lockBtn" type="button">Sign out</button>
     </div>
-    <div class="forms" id="formList"></div>
-    <p class="hint" id="updated"></p>
+    <div id="home" class="tiles">
+      <a class="tile" href="#forms">
+        <div class="tile-ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div>
+        <div class="tile-body"><h3>Forms</h3><p>Checklists, mission records, client and pilot forms</p><span class="tile-meta" id="formCount"></span></div>
+        <span class="tile-go">&rsaquo;</span>
+      </a>
+      <a class="tile" href="tel:+17605273267">
+        <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2"/></svg></div>
+        <div class="tile-body"><h3>Contact Overhead UAS</h3><p>Call or text (760) 527-3267</p></div>
+        <span class="tile-go">&rsaquo;</span>
+      </a>
+    </div>
+    <div id="formsView" hidden>
+      <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Forms</h2></div>
+      <div class="forms" id="formList"></div>
+      <p class="hint" id="updated"></p>
+    </div>
   </section>
 </main>
 
@@ -254,7 +283,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 4; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 5; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1197,7 +1226,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         msg.innerHTML = 'The portal was updated. <a href="pilots.html?v=' + Date.now() + '"><b>Tap here to load the new version</b></a>, then enter your code again.';
         K = null; manifest = null; return;
       }
-      render();
+      render(); route();
       $('code').value = '';
       $('lock').hidden = true; $('files').hidden = false; document.querySelector('.lead').hidden = true;
     } catch (err) {
@@ -1207,7 +1236,16 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     }
   });
 
+  function route() {
+    if (!manifest) return;
+    const forms = location.hash === '#forms';
+    $('home').hidden = forms; $('formsView').hidden = !forms;
+    $('formCount').textContent = manifest.forms.length + ' forms';
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener('hashchange', route);
   $('lockBtn').addEventListener('click', () => {
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     K = null; manifest = null; $('formList').innerHTML = '';
     $('files').hidden = true; $('lock').hidden = false; document.querySelector('.lead').hidden = false; $('code').focus();
   });
