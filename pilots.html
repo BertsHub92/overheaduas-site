@@ -7,12 +7,17 @@
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#08111b">
+<meta name="theme-color" content="#f2f4f7">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#08111b;--panel:#101f2f;--line:#1d3247;--text:#e8eef4;--muted:#93a6b8;--accent:#d4202c;--accent-2:#e8414c;--blue:#4ba3e3;--ok:#6fd39a;--err:#ff8a8f}
+  :root{--bg:#f2f4f7;--panel:#ffffff;--card:#ffffff;--line:#e1e6ec;--line2:#cdd5de;--field:#ffffff;--field-line:#c7d0da;
+    --text:#17222d;--muted:#566676;--muted2:#6b7b8a;--accent:#c8102e;--accent-2:#a80d27;--blue:#1f63a3;--blue-soft:#e8f0f8;--blue-ring:rgba(31,99,163,.18);
+    --ok:#1b7a40;--err:#c42330;--scrim:rgba(15,25,35,.6);--shadow:0 1px 2px rgba(16,30,45,.06),0 2px 8px rgba(16,30,45,.05);color-scheme:light}
+  :root[data-theme=dark]{--bg:#0e1822;--panel:#152230;--card:#182736;--line:#243546;--line2:#31475c;--field:#0f1b27;--field-line:#2c4256;
+    --text:#e6edf3;--muted:#a3b3c2;--muted2:#8597a8;--accent:#d63a47;--accent-2:#e2525e;--blue:#6cb2ea;--blue-soft:rgba(108,178,234,.12);--blue-ring:rgba(108,178,234,.2);
+    --ok:#74d39d;--err:#ff8f95;--scrim:rgba(3,7,12,.85);--shadow:none;color-scheme:dark}
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);font:16px/1.6 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column}
   h1,h2,h3{font-family:"Space Grotesk",Inter,sans-serif;line-height:1.2}
@@ -31,24 +36,24 @@
   .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:28px;margin-top:32px}
   label{display:block;font-size:13px;color:var(--muted);margin-bottom:8px;font-weight:500}
   .row{display:flex;gap:12px;flex-wrap:wrap}
-  input{flex:1 1 260px;background:#0a1520;border:1px solid #23394f;border-radius:10px;padding:14px;color:var(--text);font:16px Inter,sans-serif;letter-spacing:.02em}
-  input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(75,163,227,.18)}
+  input{flex:1 1 260px;background:var(--field);border:1px solid var(--field-line);border-radius:10px;padding:14px;color:var(--text);font:16px Inter,sans-serif;letter-spacing:.02em}
+  input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-ring)}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 22px;border-radius:999px;font:600 15px Inter,sans-serif;border:0;cursor:pointer;text-decoration:none;transition:.2s}
   .btn-primary{background:var(--accent);color:#fff}
   .btn-primary:hover{background:var(--accent-2)}
-  .btn-ghost{background:none;border:1px solid #2b4560;color:var(--text)}
-  .btn-ghost:hover{border-color:#c9d1d9}
+  .btn-ghost{background:none;border:1px solid var(--line2);color:var(--text)}
+  .btn-ghost:hover{border-color:var(--muted)}
   .btn:disabled{opacity:.6;cursor:wait}
   .msg{margin-top:14px;font-size:14px;min-height:1px}
   .msg.err{color:var(--err)}
-  .hint{margin-top:16px;font-size:13px;color:#7f93a6}
+  .hint{margin-top:16px;font-size:13px;color:var(--muted2)}
   .forms{display:grid;gap:14px;margin-top:20px}
-  .form{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#0b1724;border:1px solid var(--line);border-radius:14px;padding:20px}
+  .form{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
   .form h3{font-size:18px;margin-bottom:4px}
   .form p{color:var(--muted);font-size:14px;max-width:460px}
-  .form small{color:#6f8396;font-size:12px}
+  .form small{color:var(--muted2);font-size:12px}
   .form .actions{display:flex;gap:10px;flex-wrap:wrap}
-  .doc{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:rgba(75,163,227,.12);color:var(--blue);flex:none}
+  .doc{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue);flex:none}
   .form-main{display:flex;gap:14px;align-items:flex-start;flex:1 1 300px}
   .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
   .welcome{color:var(--ok);font-weight:600}
@@ -67,7 +72,7 @@
   .other-row{display:flex;gap:10px;align-items:center;margin-top:4px}
   .other-row label{margin:0}
   .other-row input[type=text]{flex:1}
-  .fill .note{font-size:13px;color:#7f93a6;margin-top:6px}
+  .fill .note{font-size:13px;color:var(--muted2);margin-top:6px}
   .fill-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
@@ -75,34 +80,34 @@
   .form > .fill{flex-basis:100%}
   .m-log .radios{flex-direction:column;align-items:flex-start;gap:10px}
   .checklist{display:grid;gap:8px}
-  .ci{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#0a1520}
+  .ci{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--field)}
   .ci.fail{border-color:rgba(239,59,69,.6)}
   .ci.invalid{border-color:var(--err);box-shadow:0 0 0 3px rgba(239,59,69,.15)}
   .ci-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .ci-n{font:700 13px "Space Grotesk";color:var(--blue);width:20px}
   .ci-t{flex:1 1 200px;font-size:14.5px}
-  .seg{display:inline-flex;border:1px solid #2b4560;border-radius:999px;overflow:hidden}
+  .seg{display:inline-flex;border:1px solid var(--line2);border-radius:999px;overflow:hidden}
   .seg label{margin:0;cursor:pointer}
   .seg input{position:absolute;opacity:0;pointer-events:none}
   .seg span{display:block;padding:7px 14px;font-size:13.5px;font-weight:600;color:var(--muted)}
-  .seg label+label span{border-left:1px solid #2b4560}
+  .seg label+label span{border-left:1px solid var(--line2)}
   .seg input:checked+span{background:var(--blue);color:#fff}
   .seg input[value=Fail]:checked+span{background:var(--accent)}
-  .seg input[value="N/A"]:checked+span{background:#55697d}
+  .seg input[value="N/A"]:checked+span{background:var(--muted)}
   .ci-note{margin-top:8px;width:100%}
   .bats{display:grid;gap:8px;margin-bottom:10px}
   .bat{display:grid;grid-template-columns:1.1fr .7fr .7fr 1.5fr 1.4fr auto;gap:8px;align-items:center}
   .bat input,.bat select,.other-ac input,.m-aircraft input,.fill input[type=text].ci-note{width:100%;padding:10px;font-size:14.5px}
-  .bat-x{background:none;border:1px solid #2b4560;color:var(--muted);border-radius:8px;width:36px;height:40px;font-size:20px;cursor:pointer}
-  .other-ac{margin-top:12px;padding:12px;border:1px dashed #2b4560;border-radius:10px}
+  .bat-x{background:none;border:1px solid var(--line2);color:var(--muted);border-radius:8px;width:36px;height:40px;font-size:20px;cursor:pointer}
+  .other-ac{margin-top:12px;padding:12px;border:1px dashed var(--line2);border-radius:10px}
   .mtable-wrap{overflow-x:auto}
   .mtable{width:100%;border-collapse:collapse;font-size:14px}
   .mtable th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em;padding:8px;border-bottom:1px solid var(--line)}
   .mtable td{padding:9px 8px;border-bottom:1px solid var(--line)}
   @media (max-width:600px){.bat{grid-template-columns:1fr 1fr}.bat select,.bat [data-b=notes]{grid-column:1/-1}.bat-x{grid-column:2;justify-self:end}}
-  .fill textarea,.fill select{width:100%;background:#0a1520;border:1px solid #23394f;border-radius:10px;padding:11px 12px;color:var(--text);font:15px Inter,sans-serif}
+  .fill textarea,.fill select{width:100%;background:var(--field);border:1px solid var(--field-line);border-radius:10px;padding:11px 12px;color:var(--text);font:15px Inter,sans-serif}
   .fill textarea{resize:vertical;min-height:70px}
-  .fill textarea:focus,.fill select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(75,163,227,.18)}
+  .fill textarea:focus,.fill select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-ring)}
   .radios{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:12px}
   .radios label{display:flex;gap:8px;align-items:center;margin:0;color:var(--text);font-size:15px;cursor:pointer}
   .radios input{width:18px;height:18px;accent-color:var(--blue);flex:none;padding:0}
@@ -116,7 +121,7 @@
   .fill .invalid,.fill input.invalid{border-color:var(--err) !important;box-shadow:0 0 0 3px rgba(239,59,69,.15)}
   .checks.invalid{outline:2px solid var(--err);outline-offset:6px;border-radius:6px}
   .sigs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .sig{border:1px dashed #2b4560;border-radius:12px;padding:12px;background:#0a1520}
+  .sig{border:1px dashed var(--line2);border-radius:12px;padding:12px;background:var(--field)}
   .sig.signed{border-style:solid;border-color:rgba(111,211,154,.5)}
   .sig.invalid{border-color:var(--err)}
   .sig-preview{height:84px;border-radius:8px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#93a6b8;font-size:13px;overflow:hidden}
@@ -129,7 +134,7 @@
   .ok-msg{color:var(--ok);background:rgba(111,211,154,.1);border:1px solid rgba(111,211,154,.35);border-radius:10px;padding:14px}
   .err-msg{color:var(--err);background:rgba(239,59,69,.1);border:1px solid rgba(239,59,69,.35);border-radius:10px;padding:14px}
   .fill .msg.err{margin-top:14px}
-  .pad{position:fixed;inset:0;z-index:100;background:rgba(3,7,12,.92);display:flex;align-items:center;justify-content:center;padding:12px}
+  .pad{position:fixed;inset:0;z-index:100;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:12px}
   .pad-box{width:min(760px,100%);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px;max-height:100%}
   .pad-head{display:flex;justify-content:space-between;gap:10px;font-family:"Space Grotesk";font-size:18px}
   .pad-head span{color:var(--muted);font:500 14px Inter}
@@ -141,21 +146,53 @@
   .pad-consent{font-size:12.5px;color:var(--muted)}
   .pad-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
   @media (max-width:600px){.sigs{grid-template-columns:1fr}}
-  footer{border-top:1px solid var(--line);padding:24px 16px;color:#6f8396;font-size:13px;text-align:center}
+  footer{border-top:1px solid var(--line);padding:24px 16px;color:var(--muted2);font-size:13px;text-align:center}
+
+  /* ---- calmer layout ---- */
+  body{font-size:16px}
+  header{background:var(--panel)}
+  main{padding:28px 16px 64px;max-width:760px}
+  h1{font-size:clamp(26px,5vw,34px);margin:8px 0 6px}
+  .card{margin-top:22px;padding:22px;box-shadow:var(--shadow)}
+  .theme-btn{background:none;border:1px solid var(--line2);color:var(--muted);border-radius:999px;padding:7px 12px;font:500 13px Inter,sans-serif;cursor:pointer}
+  .bar-right{display:flex;align-items:center;gap:14px}
+  .group-title{font:600 12px "Space Grotesk",sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:22px 2px 2px}
+  .group-title:first-child{margin-top:4px}
+  .group-title span{font:400 12.5px Inter,sans-serif;letter-spacing:0;text-transform:none;color:var(--muted2);margin-left:6px}
+  .forms{gap:12px;margin-top:8px}
+  .form{background:var(--card);box-shadow:var(--shadow);padding:16px 16px 14px;gap:12px;align-items:flex-start}
+  .form h3{font-size:17px;margin-bottom:3px}
+  .form p{font-size:14.5px;line-height:1.5;max-width:none}
+  .form-main{flex:1 1 100%}
+  .doc{width:38px;height:38px;border-radius:10px}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+  .tag{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--blue-soft);color:var(--blue)}
+  .tag.grey{background:transparent;border:1px solid var(--line2);color:var(--muted)}
+  .form .actions{width:100%;padding-left:52px;gap:8px}
+  .form .actions .btn{padding:10px 16px;font-size:14px}
+  .btn-ghost{border-color:var(--line2)}
+  .btn-ghost:hover{border-color:var(--blue);color:var(--blue)}
+  .fill{background:var(--bg);margin:6px -16px -14px;padding:18px 16px;border-radius:0 0 14px 14px}
+  .fill input,.fill textarea,.fill select{background:var(--field)}
+  .sig,.ci{background:var(--card)}
+  @media (max-width:600px){.form .actions{padding-left:0}.form .actions .btn{flex:1 1 auto}}
+  #files.card{background:none;border:0;box-shadow:none;padding:0;margin-top:18px}
+  #files .top{padding:0 2px}
+  .form > .fill{flex:0 0 auto;width:calc(100% + 32px)}
 </style>
 </head>
 <body>
 <header>
   <div class="bar">
     <a class="brand" href="./"><img src="logo.png" alt="" width="38" height="38"><span>Overhead <b>UAS</b></span></a>
-    <a class="back" href="./">&larr; Back to site</a>
+    <div class="bar-right"><button class="theme-btn" id="themeBtn" type="button">Dark mode</button><a class="back" href="./">&larr; Site</a></div>
   </div>
 </header>
 
 <main>
   <div class="eyebrow">Pilot Portal</div>
-  <h1>Mission forms</h1>
-  <p class="lead">For Overhead UAS pilots. Enter your personal pilot code to download and print the forms you need for your mission.</p>
+  <h1>Pilot forms</h1>
+  <p class="lead">Enter your pilot code to open your checklists, mission records, and client forms.</p>
 
   <section class="card" id="lock">
     <form id="unlockForm" autocomplete="off">
@@ -183,7 +220,14 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 2; // bump when the page needs to match a newer portal build
+  const PAGE_VERSION = 2;
+  (() => {
+    const btn = document.getElementById('themeBtn');
+    const apply = t => { document.documentElement.dataset.theme = t; btn.textContent = t === 'dark' ? 'Light mode' : 'Dark mode'; };
+    let t = 'light'; try { t = localStorage.getItem('ouas_theme') || 'light'; } catch (e) {}
+    apply(t);
+    btn.onclick = () => { t = t === 'dark' ? 'light' : 'dark'; apply(t); try { localStorage.setItem('ouas_theme', t); } catch (e) {} };
+  })(); // bump when the page needs to match a newer portal build
   const enc = new TextEncoder();
   const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
   const norm = c => c.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -221,22 +265,32 @@
   function render() {
     const list = $('formList');
     list.innerHTML = '';
+    const groups = {'1': ['Flight operations', 'print & laminate'], '2': ['Mission records', 'fill out per flight'], '3': ['Client & business', '']};
+    let lastG = '';
     for (const f of manifest.forms) {
+      const g = (/OVH-(\d)/.exec(f.title) || [])[1] || '';
+      if (g && g !== lastG && groups[g]) {
+        const h = document.createElement('div'); h.className = 'group-title';
+        h.innerHTML = esc(groups[g][0]) + (groups[g][1] ? `<span>${esc(groups[g][1])}</span>` : '');
+        list.appendChild(h); lastG = g;
+      }
       const el = document.createElement('div');
       el.className = 'form';
       el.innerHTML = `
         <div class="form-main">
           <div class="doc"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></div>
-          <div><h3></h3><p></p><small></small></div>
+          <div><h3></h3><p></p><div class="tags"></div><small hidden></small></div>
         </div>
         <div class="actions">
           <button class="btn btn-primary" data-act="fill" hidden>Fill out online</button>
-          <button class="btn btn-ghost" data-act="download">Download blank</button>
-          <button class="btn btn-ghost" data-act="print">Print blank</button>
+          <button class="btn btn-ghost" data-act="print">Print</button>
+          <button class="btn btn-ghost" data-act="download">Download</button>
         </div>`;
       el.querySelector('h3').textContent = f.title;
       el.querySelector('p').textContent = f.desc || '';
-      el.querySelector('small').textContent = 'PDF · ' + fmtSize(f.size) + (f.fill ? ' · fillable' : '');
+      const tags = f.app ? ['Online only'] : f.fill ? ['Fill & sign online', 'Printable'] : ['Printable'];
+      el.querySelector('.tags').innerHTML = tags.map((t, i) => `<span class="tag${i ? ' grey' : ''}">${esc(t)}</span>`).join('');
+      if (f.fill) { el.querySelector('[data-act=print]').textContent = 'Print blank'; el.querySelector('[data-act=download]').textContent = 'Download blank'; }
       if (f.app) { renderApp(f, el); list.appendChild(el); continue; }
       if (f.fill) { const fb = el.querySelector('[data-act=fill]'); fb.hidden = false; fb.onclick = () => openFill(f, el); }
       el.querySelector('[data-act=download]').onclick = e => getFile(f, 'download', e.currentTarget);
@@ -643,7 +697,7 @@
     acts.querySelector('[data-m=log]').onclick = () => openMaint(f, el);
     acts.querySelector('[data-m=aircraft]').onclick = () => openAircraft(f, el);
     acts.querySelector('[data-m=history]').onclick = () => openHistory(f, el);
-    el.querySelector('small').textContent = 'Online only · saved to the Overhead UAS maintenance records';
+
   }
 
   // ----- Aircraft list + add
