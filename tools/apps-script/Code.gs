@@ -139,6 +139,12 @@ function book(prop, title, tabs, sub) {
       sh = ss.insertSheet(name);
       sh.appendRow(tabs[name]); sh.setFrozenRows(1);
       sh.getRange(1, 1, 1, tabs[name].length).setFontWeight('bold').setBackground('#0b1f33').setFontColor('#ffffff');
+    } else {
+      var head = sh.getDataRange().getValues()[0] || [];
+      if (head.length < tabs[name].length) {        // newer version of the script added columns
+        var add = tabs[name].slice(head.length);
+        sh.getRange(1, head.length + 1, 1, add.length).setValues([add]).setFontWeight('bold').setBackground('#0b1f33').setFontColor('#ffffff');
+      }
     }
   });
   var def = ss.getSheetByName('Sheet1'); if (def && ss.getSheets().length > 1) ss.deleteSheet(def);
@@ -172,6 +178,7 @@ function handleAction(d) {
   if (/^mission\./.test(d.action)) return missionAction(d);
   if (/^train\./.test(d.action)) return trainAction(d);
   if (/^ann\./.test(d.action)) return annAction(d);
+  if (/^qual\./.test(d.action)) return qualAction(d);
   if (/^(me|pilot|pilots|doc)\./.test(d.action)) return pilotAction(d);
   if (d.action === 'plan.tfr') return planTfr(d);
   if (d.action === 'plan.wx') return planWx(d);
@@ -238,10 +245,11 @@ var PTABS = {
   Missions: ['Mission #', 'Name', 'Client', 'Planned date', 'Location', 'Pilot ID', 'Pilot', 'Status', 'Folder ID', 'Created', 'Closed'],
   'Mission Files': ['Mission #', 'Form', 'File name', 'File ID', 'Saved', 'Saved by'],
   Courses: ['Course ID', 'Title', 'Category', 'Description', 'Video / link', 'Slides file ID', 'Slides name', 'Quiz JSON', 'Pass %', 'Required', 'Assigned to',
-            'Due date', 'Repeat', 'Status', 'Created', 'Updated by'],
+            'Due date', 'Repeat', 'Status', 'Created', 'Updated by', 'Qual item'],
   Completions: ['Course ID', 'Course', 'Pilot ID', 'Pilot', 'Score %', 'Passed', 'Completed', 'Valid until', 'Certificate file ID'],
   Announcements: ['Ann ID', 'Title', 'Message', 'Important', 'Posted', 'Posted by', 'Expires', 'Status', 'Emailed'],
-  'Announcement Reads': ['Ann ID', 'Pilot ID', 'Pilot', 'Read']
+  'Announcement Reads': ['Ann ID', 'Pilot ID', 'Pilot', 'Read'],
+  Qualifications: ['Pilot ID', 'Section', 'Item', 'Date', 'Pilot init', 'Company init', 'Details', 'Source', 'Updated', 'Updated by', 'Status']
 };
 var PFIELDS = ['name', 'phone', 'email', 'cert', 'issued', 'recurrent', 'due', 'other'];
 
@@ -517,7 +525,7 @@ function courseOut(c, admin) {
   return {id: String(c['Course ID']), title: c['Title'], category: c['Category'], description: c['Description'], link: c['Video / link'],
           slides: c['Slides file ID'] ? {id: c['Slides file ID'], name: c['Slides name']} : null, pass: Number(c['Pass %']) || 80,
           required: c['Required'] === true || c['Required'] === 'TRUE' || c['Required'] === 'Yes', assigned: String(c['Assigned to'] || 'All'),
-          due: c['Due date'], repeat: c['Repeat'] || 'Once', status: c['Status'] || 'Active', questions: q.length,
+          due: c['Due date'], repeat: c['Repeat'] || 'Once', status: c['Status'] || 'Active', questions: q.length, qual: String(c['Qual item'] || ''),
           quiz: admin ? q : q.map(function (x) { return {question: x.question, options: x.options}; })};   // pilots never receive answers
 }
 function bestCompletion(ss, courseId, pilotId) {
@@ -582,7 +590,7 @@ function trainAction(d) {
       var vals = [id, clean(f.title, 120) || 'Untitled course', clean(f.category, 40), clean(f.description, 3000), clean(f.link, 500), slidesId, slidesName,
                   JSON.stringify(quiz), Math.max(0, Math.min(100, Number(f.pass) || 80)), f.required ? 'Yes' : 'No', clean(f.assigned || 'All', 1000),
                   clean(f.due, 20), f.repeat === 'Yearly' ? 'Yearly' : 'Once', f.status === 'Archived' ? 'Archived' : f.status === 'Deleted' ? 'Deleted' : 'Active',
-                  old ? old.obj['Created'] : new Date(), clean(me.name, 80)];
+                  old ? old.obj['Created'] : new Date(), clean(me.name, 80), clean(f.qual, 4)];
       if (old) C.getRange(old.i, 1, 1, vals.length).setValues([vals]); else C.appendRow(vals);
       return {ok: true, course: courseOut(findRow(C, 'Course ID', id).obj, true)};
     } finally { lock.releaseLock(); }
@@ -613,6 +621,7 @@ function trainAction(d) {
     pdf.setName(('Training_' + c['Title'] + '_' + fmt(now)).replace(/[^\w.\- ]+/g, '_') + '.pdf');
     var file = pilotFolder(pname, me.id).createFile(pdf);
     X.appendRow([String(c['Course ID']), clean(c['Title'], 120), me.id, clean(pname, 80), score, 'Yes', now, until || '', file.getId()]);
+    if (c['Qual item']) qualSet(ss, me.id, 'training', String(c['Qual item']), {date: fmt(now), pinit: initials(pname), cinit: 'Portal', source: String(c['Course ID']) + ' (' + score + '%)'}, 'Training');
     ss.getSheetByName('Documents').appendRow([file.getId(), me.id, 'Other certificate', clean('Training: ' + c['Title'], 120), '', '', until ? fmt(until) : '', file.getName(), now, clean(pname, 80), 'Active']);
     return {ok: true, passed: true, score: score, pass: pass, certificate: file.getId(), until: until ? fmt(until) : ''};
   }
@@ -665,5 +674,85 @@ function annAction(d) {
     var r1 = findRow(A, 'Ann ID', String(d.id)); if (!r1) return {ok: false, error: 'not found'};
     A.getRange(r1.i, PTABS.Announcements.indexOf('Status') + 1).setValue('Deleted'); return {ok: true};
   }
+  return {ok: false, error: 'unknown action'};
+}
+
+
+// ===================== Pilot Qualification Record (OVH-402) =====================
+var QUAL_ITEMS = ['OVH-101 Preflight Checklist reviewed', 'OVH-103 Emergency Procedures reviewed', 'OVH-201 / 202 / 203 / 205 forms reviewed',
+  'OVH-204 Maintenance log & aircraft care', 'Pilot Portal access & pilot code issued', 'Client agreement & conduct (OVH-301)',
+  'Privacy & surveillance footage handling (OVH-206)', 'SKYHOOK long-line checkout (if applicable, OVH-102)', 'Insurance requirements reviewed'];
+function initials(n) { return String(n || '').split(/\s+/).filter(Boolean).map(function (w) { return w.charAt(0).toUpperCase(); }).join('').slice(0, 4); }
+function qualRow(Q, pid, section, item) {
+  var v = Q.getDataRange().getValues(), H = v[0];
+  for (var i = 1; i < v.length; i++) if (String(v[i][0]) === pid && v[i][1] === section && String(v[i][2]) === String(item) && v[i][H.indexOf('Status')] !== 'Deleted') return i + 1;
+  return 0;
+}
+function qualSet(ss, pid, section, item, f, by) {     // upsert one row; only the fields given are changed
+  var Q = ss.getSheetByName('Qualifications'), H = PTABS.Qualifications, r = qualRow(Q, pid, section, item);
+  var cur = r ? Q.getDataRange().getValues()[r - 1].slice(0, H.length) : [pid, section, String(item), '', '', '', '', '', '', '', 'Active'];
+  while (cur.length < H.length) cur.push('');
+  var map = {date: 'Date', pinit: 'Pilot init', cinit: 'Company init', details: 'Details', source: 'Source'};
+  Object.keys(map).forEach(function (k) { if (f[k] !== undefined) cur[H.indexOf(map[k])] = clean(f[k], 1000); });
+  cur[H.indexOf('Updated')] = new Date(); cur[H.indexOf('Updated by')] = clean(by, 80); cur[H.indexOf('Status')] = 'Active';
+  if (r) Q.getRange(r, 1, 1, H.length).setValues([cur]); else Q.appendRow(cur);
+}
+function qualOut(ss, pid) {
+  var all = rows(ss.getSheetByName('Qualifications')).filter(function (q) { return String(q['Pilot ID']) === pid && q['Status'] !== 'Deleted'; });
+  var info = {}, training = {}, aircraft = [], reviews = [];
+  all.forEach(function (q) {
+    var o = {id: String(q['Item']), date: q['Date'] || '', pinit: q['Pilot init'] || '', cinit: q['Company init'] || '', source: q['Source'] || '', by: q['Updated by'] || ''};
+    var det = {}; try { det = JSON.parse(String(q['Details'] || '{}')); } catch (e) { det = {value: String(q['Details'] || '')}; }
+    if (q['Section'] === 'info') info[o.id] = det.value || '';
+    else if (q['Section'] === 'training') training[o.id] = o;
+    else if (q['Section'] === 'aircraft') aircraft.push(Object.assign(o, det));
+    else if (q['Section'] === 'review') reviews.push(Object.assign(o, det));
+  });
+  var linked = {};
+  trainCourses(ss).forEach(function (c) { if (c['Qual item'] && (c['Status'] || 'Active') === 'Active') (linked[String(c['Qual item'])] = linked[String(c['Qual item'])] || []).push(String(c['Course ID']) + ' ' + c['Title']); });
+  return {ok: true, items: QUAL_ITEMS, info: info, training: training, aircraft: aircraft, reviews: reviews, linked: linked};
+}
+function qualAction(d) {
+  var ss = pilotBook(), me = pilotAuth(d, ss), target = String(d.target || me.id), self = target === me.id;
+  if (!self && !me.admin) return {ok: false, error: 'not allowed'};
+  var pr = findRow(ss.getSheetByName('Pilots'), 'Pilot ID', target); if (!pr && !self) return {ok: false, error: 'pilot not found'};
+  var myName = (findRow(ss.getSheetByName('Pilots'), 'Pilot ID', me.id) || {obj: {}}).obj['Name'] || me.name;
+  var today = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'MM/dd/yyyy');
+  if (d.action === 'qual.get') return qualOut(ss, target);
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    if (d.action === 'qual.initial') {            // the pilot initials a training item on their own record
+      if (!self) return {ok: false, error: 'only the pilot can initial'};
+      var n = String(d.item); if (!(+n >= 1 && +n <= QUAL_ITEMS.length)) return {ok: false, error: 'bad item'};
+      var r0 = qualRow(ss.getSheetByName('Qualifications'), target, 'training', n), cur0 = r0 ? ss.getSheetByName('Qualifications').getDataRange().getValues()[r0 - 1][3] : '';
+      qualSet(ss, target, 'training', n, {pinit: initials(myName), date: cur0 ? undefined : today}, myName);
+      return qualOut(ss, target);
+    }
+    if (d.action === 'qual.info') {               // admins edit everything; a pilot may update only their emergency contact
+      var keys = me.admin ? ['status', 'start', 'emergency', 'night'] : ['emergency'];
+      keys.forEach(function (k) { if (d.info && d.info[k] !== undefined) qualSet(ss, target, 'info', k, {details: JSON.stringify({value: String(d.info[k]).slice(0, 200)})}, myName); });
+      return qualOut(ss, target);
+    }
+    if (!me.admin) return {ok: false, error: 'admins only'};
+    if (d.action === 'qual.signoff') {
+      var m = String(d.item); if (!(+m >= 1 && +m <= QUAL_ITEMS.length)) return {ok: false, error: 'bad item'};
+      if (d.clear) { var rc = qualRow(ss.getSheetByName('Qualifications'), target, 'training', m); if (rc) ss.getSheetByName('Qualifications').getRange(rc, PTABS.Qualifications.indexOf('Status') + 1).setValue('Deleted'); return qualOut(ss, target); }
+      qualSet(ss, target, 'training', m, {date: d.date || today, cinit: initials(myName), source: 'Signed off by ' + myName}, myName);
+      return qualOut(ss, target);
+    }
+    if (d.action === 'qual.add') {                // aircraft authorization or annual review
+      var sec = d.section === 'review' ? 'review' : 'aircraft', id = 'Q' + new Date().getTime().toString(36);
+      var det = sec === 'aircraft' ? {aircraft: String(d.aircraft || '').slice(0, 80), notes: String(d.notes || '').slice(0, 120)}
+                                   : {cert: d.cert ? 'Yes' : 'No', ins: d.ins ? 'Yes' : 'No', notes: String(d.notes || '').slice(0, 160)};
+      if (sec === 'aircraft' && !det.aircraft) return {ok: false, error: 'aircraft required'};
+      qualSet(ss, target, sec, id, {date: d.date || today, cinit: myName, details: JSON.stringify(det)}, myName);
+      return qualOut(ss, target);
+    }
+    if (d.action === 'qual.remove') {
+      var Q = ss.getSheetByName('Qualifications'), rr = qualRow(Q, target, d.section === 'review' ? 'review' : 'aircraft', String(d.id));
+      if (rr) Q.getRange(rr, PTABS.Qualifications.indexOf('Status') + 1).setValue('Deleted');
+      return qualOut(ss, target);
+    }
+  } finally { lock.releaseLock(); }
   return {ok: false, error: 'unknown action'};
 }

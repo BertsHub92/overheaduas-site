@@ -83,6 +83,14 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .qual h4{margin-top:16px} .qinfo{margin-top:8px}
+  .qual select,.qual input[type=text],.qual input[type=date]{width:100%;padding:9px 11px;font:14.5px Inter,sans-serif;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text)}
+  .qval{padding:9px 0;font-size:15px}
+  .qitems,.qlist{display:grid;gap:8px;margin-top:8px}
+  .qitem,.qrow{display:flex;gap:10px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .qitem.ok{border-left:4px solid var(--ok)} .qmain{min-width:0} .qmain b{font-size:14.5px}
+  .qbtns{display:flex;gap:6px;align-items:center;flex:none}
+  .qadd{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px} .qadd input[type=text],.qadd input[type=date]{flex:1 1 140px;width:auto}
   #annBanner{display:grid;gap:10px;margin-bottom:14px}
   .ann-list{display:grid;gap:10px;margin-top:12px}
   .ann-card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:12px;padding:14px}
@@ -463,7 +471,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 22; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 23; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1540,6 +1548,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
   }
 
   function drawFolder(v, id, self, P, docs) {
+    setTimeout(() => drawQual(v, id, self, P), 0);
     const f = (k, label, type = 'text', extra = '') => `<div class="${extra}"><label>${label}</label><input type="${type}" data-p="${k}" value="${esc(type === 'date' ? toIso(P[k]) : (P[k] || ''))}"></div>`;
     v.innerHTML = `<div class="view-head"><a href="${self ? '#' : '#pilots'}" class="back-btn">&lsaquo; ${self ? 'Portal' : 'Current Pilots'}</a><h2>${self ? 'My Pilot Folder' : esc(P.name || id)}</h2></div>
       <div class="pcard"><div class="pcard-top"><div><b>${esc(P.name || id)}</b>${P.cert ? ' · Part 107 #' + esc(P.cert) : ''}</div>${dueBadge(P)}</div>
@@ -1626,6 +1635,74 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
       try { const r = await papi('doc.delete', {docId: b.dataset.del}); if (self) { MYDOCS = r.docs; updateWho(); } drawFolder(v, id, self, P, r.docs); }
       catch (x) { alert('Could not delete (' + x.message + ')'); }
     });
+  }
+
+
+  // ---------- Pilot Qualification Record (OVH-402), kept online, printable ----------
+  const QUAL_ITEMS = ['OVH-101 Preflight Checklist reviewed', 'OVH-103 Emergency Procedures reviewed', 'OVH-201 / 202 / 203 / 205 forms reviewed',
+    'OVH-204 Maintenance log & aircraft care', 'Pilot Portal access & pilot code issued', 'Client agreement & conduct (OVH-301)',
+    'Privacy & surveillance footage handling (OVH-206)', 'SKYHOOK long-line checkout (if applicable, OVH-102)', 'Insurance requirements reviewed'];
+  async function drawQual(v, id, self, P) {
+    let box = v.querySelector('.qual'); if (!box) { box = document.createElement('div'); box.className = 'pcard qual'; v.appendChild(box); }
+    box.innerHTML = '<h4>Qualification record (OVH-402)</h4><p class="note">Loading…</p>';
+    let Qr; try { Qr = await papi('qual.get', {target: id}); } catch (e) { box.innerHTML = `<h4>Qualification record (OVH-402)</h4><p class="err-msg">Couldn't load (${esc(e.message)}).</p>`; return; }
+    const admin = ME && ME.role === 'admin';
+    const render = Q => {
+      const done = Q.items.filter((_, i) => { const t = Q.training[String(i + 1)]; return t && t.date && t.cinit; }).length, I = Q.info || {};
+      box.innerHTML = `<div class="pcard-top"><h4>Qualification record (OVH-402)</h4><span class="badge ${done === Q.items.length ? 'green' : 'amber'}">${done} of ${Q.items.length} signed off</span></div>
+        <p class="note">Items fill in automatically when ${self ? 'you pass' : 'the pilot passes'} a linked training course. ${admin ? 'You can also sign items off by hand.' : 'Tap Initial to acknowledge an item.'}</p>
+        <div class="grid2 qinfo">
+          <div><label>Status</label>${admin ? `<select data-q="status">${['', 'Employee', 'Contractor', 'Owner'].map(x => `<option${x === (I.status || '') ? ' selected' : ''}>${x}</option>`).join('')}</select>` : `<div class="qval">${esc(I.status || '–')}</div>`}</div>
+          <div><label>Start date</label>${admin ? `<input type="date" data-q="start" value="${esc(toIso(I.start))}">` : `<div class="qval">${esc(I.start || '–')}</div>`}</div>
+          <div><label>Emergency contact</label><input type="text" data-q="emergency" value="${esc(I.emergency || '')}" placeholder="Name and phone"></div>
+          <div><label>Night ops training (date)</label>${admin ? `<input type="date" data-q="night" value="${esc(toIso(I.night))}">` : `<div class="qval">${esc(I.night || '–')}</div>`}</div>
+        </div>
+        <div class="fill-actions"><button class="btn btn-ghost sm" data-x="qinfo">Save</button><span class="save-msg" data-m="qinfo"></span></div>
+        <h4>Company training &amp; orientation</h4>
+        <div class="qitems">${Q.items.map((it, i) => { const n = String(i + 1), t = Q.training[n] || {}, ok = t.date && t.cinit, links = (Q.linked || {})[n] || [];
+          return `<div class="qitem${ok ? ' ok' : ''}"><div class="qmain"><b>${i + 1}. ${esc(it)}</b>
+            <div class="note">${t.date ? `${esc(t.date)} · pilot ${esc(t.pinit || '–')} · company ${esc(t.cinit || '–')}${t.source ? ' · ' + esc(t.source) : ''}` : links.length ? 'Completes with training: ' + esc(links.join(', ')) : 'Not completed'}</div></div>
+            <div class="qbtns">${ok ? '<span class="badge green">&#10003;</span>' : ''}${self && t.date && !t.pinit ? `<button class="btn btn-ghost sm" data-ini="${n}">Initial</button>` : ''}
+            ${admin ? (ok ? `<button class="btn btn-ghost sm" data-clr="${n}">Clear</button>` : `<button class="btn btn-ghost sm" data-sign="${n}">Sign off</button>`) : ''}</div></div>`; }).join('')}</div>
+        <h4>Aircraft authorized to fly</h4>
+        <div class="qlist">${Q.aircraft.map(a => `<div class="qrow"><div><b>${esc(a.aircraft)}</b><div class="note">Checked out ${esc(a.date)} · approved by ${esc(a.cinit)}${a.notes ? ' · ' + esc(a.notes) : ''}</div></div>${admin ? `<button class="btn btn-ghost sm" data-rm="aircraft:${esc(a.id)}">Remove</button>` : ''}</div>`).join('') || '<p class="note">None yet.</p>'}</div>
+        ${admin ? `<div class="qadd"><input type="text" data-n="aircraft" placeholder="Aircraft (nickname / model)"><input type="date" data-n="adate"><input type="text" data-n="anotes" placeholder="Notes"><button class="btn btn-ghost sm" data-x="addac">Add</button></div>` : ''}
+        <h4>Annual review</h4>
+        <div class="qlist">${Q.reviews.map(a => `<div class="qrow"><div><b>${esc(a.date)}</b> · cert current ${esc(a.cert)} · insurance OK ${esc(a.ins)}<div class="note">by ${esc(a.cinit)}${a.notes ? ' · ' + esc(a.notes) : ''}</div></div>${admin ? `<button class="btn btn-ghost sm" data-rm="review:${esc(a.id)}">Remove</button>` : ''}</div>`).join('') || '<p class="note">None yet.</p>'}</div>
+        ${admin ? `<div class="qadd"><input type="date" data-n="rdate"><label class="inline"><input type="checkbox" data-n="rcert" checked> Cert current</label><label class="inline"><input type="checkbox" data-n="rins" checked> Insurance OK</label><input type="text" data-n="rnotes" placeholder="Notes"><button class="btn btn-ghost sm" data-x="addrev">Add review</button></div>` : ''}
+        <div class="fill-actions" style="margin-top:14px"><button class="btn btn-primary" data-x="qprint">Print OVH-402</button><span class="save-msg" data-m="qprint"></span></div>`;
+      const q = sel => box.querySelector(sel), act = async (action, body, btn) => { if (btn) btn.disabled = true;
+        try { Qr = await papi(action, Object.assign({target: id}, body)); render(Qr); } catch (e) { alert('Could not save (' + e.message + ')'); if (btn) btn.disabled = false; } };
+      q('[data-x=qinfo]').onclick = e => { const info = {emergency: q('[data-q=emergency]').value.trim()};
+        if (admin) { info.status = q('[data-q=status]').value; info.start = usDate(q('[data-q=start]').value); info.night = usDate(q('[data-q=night]').value); }
+        act('qual.info', {info}, e.currentTarget).then(() => { const m = box.querySelector('[data-m=qinfo]'); if (m) { m.textContent = 'Saved ✓'; m.className = 'save-msg good'; } }); };
+      box.querySelectorAll('[data-ini]').forEach(b => b.onclick = () => act('qual.initial', {item: b.dataset.ini}, b));
+      box.querySelectorAll('[data-sign]').forEach(b => b.onclick = () => act('qual.signoff', {item: b.dataset.sign}, b));
+      box.querySelectorAll('[data-clr]').forEach(b => b.onclick = () => { if (confirm('Clear this item?')) act('qual.signoff', {item: b.dataset.clr, clear: true}, b); });
+      box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { const [section, rid] = b.dataset.rm.split(':'); if (confirm('Remove this entry?')) act('qual.remove', {section, id: rid}, b); });
+      if (q('[data-x=addac]')) q('[data-x=addac]').onclick = e => { const a = q('[data-n=aircraft]').value.trim(); if (!a) return alert('Enter the aircraft');
+        act('qual.add', {section: 'aircraft', aircraft: a, date: usDate(q('[data-n=adate]').value), notes: q('[data-n=anotes]').value.trim()}, e.currentTarget); };
+      if (q('[data-x=addrev]')) q('[data-x=addrev]').onclick = e => act('qual.add', {section: 'review', date: usDate(q('[data-n=rdate]').value), cert: q('[data-n=rcert]').checked, ins: q('[data-n=rins]').checked, notes: q('[data-n=rnotes]').value.trim()}, e.currentTarget);
+      q('[data-x=qprint]').onclick = async e => { const b = e.currentTarget, m = box.querySelector('[data-m=qprint]'); b.disabled = true; m.textContent = 'Building PDF…'; m.className = 'save-msg';
+        try { const bytes = await qualPdf(P, Qr); showFile(new Blob([bytes], {type: 'application/pdf'}), `OVH-402_Qualification_Record_${String(P.name || id).replace(/[^\w]+/g, '_')}.pdf`, 'application/pdf'); m.textContent = ''; }
+        catch (x) { m.textContent = 'Could not build the PDF (' + x.message + ')'; m.className = 'save-msg bad'; } finally { b.disabled = false; } };
+    };
+    render(Qr);
+  }
+  async function qualPdf(P, Q) {
+    const {PDFDocument, StandardFonts} = await loadPdfLib();
+    const f = manifest.forms.find(x => x.title.startsWith('OVH-402')); if (!f) throw new Error('OVH-402 form not found');
+    const doc = await PDFDocument.load(await open(K, await fetchBytes('portal/' + f.id + '.bin'), f.id)), form = doc.getForm(), font = await doc.embedFont(StandardFonts.Helvetica);
+    const set = (n, val) => { try { const t = form.getTextField(n); t.setMaxLength(undefined); t.setText(String(val || '')); } catch (e) {} };
+    const I = Q.info || {};
+    set('pilot', P.name); set('phone', P.phone); set('email', P.email); set('start', I.start); set('emergency', I.emergency);
+    ['Employee', 'Contractor', 'Owner'].forEach((x, k) => { if (I.status === x) try { form.getCheckBox('status_' + k).check(); } catch (e) {} });
+    set('cert', P.cert); set('issued', P.issued); set('recurrent', P.recurrent); set('due', P.due); set('night', I.night); set('waivers', P.other);
+    Q.items.forEach((_, i) => { const t = Q.training[String(i + 1)] || {}; set(`train${i + 1}_1`, t.date); set(`train${i + 1}_2`, t.pinit); set(`train${i + 1}_3`, t.cinit); });
+    Q.aircraft.slice(0, 5).forEach((a, i) => { set(`ac${i + 1}_aircraft`, a.aircraft); set(`ac${i + 1}_date`, a.date); set(`ac${i + 1}_by`, a.cinit); set(`ac${i + 1}_notes`, a.notes); });
+    Q.reviews.slice(-3).forEach((a, i) => { set(`rev${i + 1}_date`, a.date); set(`rev${i + 1}_cert`, a.cert); set(`rev${i + 1}_ins`, a.ins); set(`rev${i + 1}_notes`, a.notes); set(`rev${i + 1}_by`, a.cinit); });
+    form.updateFieldAppearances(font); form.flatten();
+    return doc.save();
   }
 
   async function openPilots() {
@@ -1882,7 +1959,9 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
           <div class="checks pilots-pick"${c.assigned === 'All' ? ' hidden' : ''}>${pilots.map(p => `<label><input type="checkbox" data-pilot="${esc(p.id)}"${sel.includes(p.id) ? ' checked' : ''}>${esc(p.name)}</label>`).join('') || '<span class="note">Pilots appear after their first sign-in.</span>'}</div></div>
         <div><label>Due date</label><input type="date" data-c="due" value="${toIsoD(c.due)}"></div>
         <div><label>Repeat</label><select data-c="repeat">${['Once', 'Yearly'].map(x => `<option${x === c.repeat ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
-        <div><label>Pass score (%)</label><input type="number" data-c="pass" min="0" max="100" value="${esc(c.pass)}"></div></div></div>
+        <div><label>Pass score (%)</label><input type="number" data-c="pass" min="0" max="100" value="${esc(c.pass)}"></div>
+        <div class="wide"><label>Counts toward qualification record (OVH-402)</label><select data-c="qual"><option value="">None</option>${QUAL_ITEMS.map((x, i) => `<option value="${i + 1}"${String(c.qual || '') === String(i + 1) ? ' selected' : ''}>${i + 1}. ${esc(x)}</option>`).join('')}</select>
+          <p class="note">When a pilot passes this course, that item on their record is dated and initialed automatically.</p></div></div></div>
       <div class="pcard"><div class="pcard-top"><h4>Quiz (<span data-qn>${quiz.length}</span> questions)</h4></div>
         <details class="qt"><summary><b>Paste questions in bulk (optional)</b></summary><p class="note">Type or paste questions in this format, then tap Add. Or just use "+ Add question" below.</p>
             <textarea data-c="paste" rows="5" placeholder="1. Question?&#10;A) Option&#10;B) Option&#10;C) Option&#10;D) Option&#10;Answer: B"></textarea>
@@ -1918,7 +1997,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
       if (bad >= 0) return m('save', `Question ${bad + 1} needs text, at least 2 options, and a correct answer that isn't blank.`, true);
       const course = {id: id === 'new' ? '' : id, title: val('title').trim(), category: val('category'), status: val('status'), description: val('description'), link: val('link').trim(),
         required: q('[data-c=required]').checked, assigned: val('assignMode') === 'All' ? 'All' : [...v.querySelectorAll('[data-pilot]:checked')].map(x => x.dataset.pilot).join(','),
-        due: usDate(val('due')), repeat: val('repeat'), pass: +val('pass') || 80, removeSlides: !!(q('[data-c=removeSlides]') || {}).checked,
+        due: usDate(val('due')), repeat: val('repeat'), pass: +val('pass') || 80, qual: val('qual'), removeSlides: !!(q('[data-c=removeSlides]') || {}).checked,
         quiz: quiz.map(x => { const opts = x.options.map((o, k) => ({o, k})).filter(z => z.o); return {question: x.question, options: opts.map(z => z.o), answer: Math.max(0, opts.findIndex(z => z.k === x.answer)), explanation: x.explanation}; })};
       if (course.assigned === '') return m('save', 'Pick at least one pilot, or assign to all pilots.', true);
       b.disabled = true; b.textContent = 'Saving…';
