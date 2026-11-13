@@ -91,6 +91,8 @@ def main(cfg_path):
         os.remove(os.path.join(OUT, name))
     manifest = {'updated': datetime.date.today().isoformat(), 'page': cfg.get('page', 0), 'forms': []}
     if cfg.get('submit', {}).get('url'): manifest['submit'] = cfg['submit']
+    # roster of everyone who has a code (names only, no codes) so admins can see who hasn't signed in yet
+    manifest['roster'] = [{'id': re.sub(r'[^A-Z0-9]+', '-', n.upper()).strip('-'), 'name': n, 'role': 'admin' if n in set(cfg.get('admins', [])) else 'pilot'} for n in codes]
     for f in forms:
         fid = 'f-' + secrets.token_hex(8)
         open(f'{OUT}/{fid}.bin', 'wb').write(seal(K, f['data'], fid.encode()))

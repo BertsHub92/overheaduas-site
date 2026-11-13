@@ -445,7 +445,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 19; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 20; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1614,13 +1614,17 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     const v = $('pilotsView');
     v.innerHTML = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Current Pilots</h2></div><p class="note">Loading…</p>`;
     let r; try { r = await papi('pilots.list'); } catch (e) { v.querySelector('.note').outerHTML = `<p class="err-msg">Couldn't load pilots (${esc(e.message)}).</p>`; return; }
+    const known = new Set(r.pilots.map(p => String(p.id)));
+    const waiting = (manifest.roster || []).filter(x => !known.has(x.id));
     const ps = r.pilots.slice().sort((a, b) => (a.status === 'Inactive') - (b.status === 'Inactive') || String(a.name).localeCompare(String(b.name)));
     v.innerHTML = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Current Pilots</h2></div>
       <p class="note">Pilots appear here after they sign in for the first time. Tap a pilot to open their folder.</p>
       <div class="plist">${ps.map(p => `<a class="prow${p.status === 'Inactive' ? ' inactive' : ''}" href="#pilot/${encodeURIComponent(p.id)}">
         <div class="prow-main"><b>${esc(p.name || p.id)}</b>${p.role === 'admin' ? ' <span class="badge grey">Admin</span>' : ''}${p.status === 'Inactive' ? ' <span class="badge grey">Inactive</span>' : ''}
           <div class="note">${p.cert ? 'Part 107 #' + esc(p.cert) : 'No cert # yet'} · ${p.docCount} document${p.docCount === 1 ? '' : 's'}${(m => m.length ? ' · <span class="warn-inline">missing ' + esc(m.join(' & ').toLowerCase()) + '</span>' : ' · <span class="ok-inline">&#10003; Part 107 docs on file</span>')(missingReq(p.types || (p.hasCert ? ['Part 107 certificate'] : [])))}</div></div>
-        <div class="prow-due">${dueBadge(p)}</div><span class="tile-go">&rsaquo;</span></a>`).join('') || '<p class="note">No pilots yet.</p>'}</div>`;
+        <div class="prow-due">${dueBadge(p)}</div><span class="tile-go">&rsaquo;</span></a>`).join('') || '<p class="note">No pilots yet.</p>'}
+        ${waiting.map(x => `<div class="prow inactive"><div class="prow-main"><b>${esc(x.name)}</b>${x.role === 'admin' ? ' <span class="badge grey">Admin</span>' : ''}
+          <div class="note">Has a sign-in code · <span class="warn-inline">hasn't signed in yet</span>. They'll be added here the first time they sign in.</div></div></div>`).join('')}</div>`;
   }
 
 
