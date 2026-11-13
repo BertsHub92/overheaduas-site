@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /pilots
+Disallow: /pilots.html
+Disallow: /portal/
+Disallow: /tools/
+
+Sitemap: https://overheaduas.com/sitemap.xml
