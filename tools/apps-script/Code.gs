@@ -171,6 +171,7 @@ function addAircraft(ss, a, by) {
 function handleAction(d) {
   if (/^mission\./.test(d.action)) return missionAction(d);
   if (/^train\./.test(d.action)) return trainAction(d);
+  if (/^ann\./.test(d.action)) return annAction(d);
   if (/^(me|pilot|pilots|doc)\./.test(d.action)) return pilotAction(d);
   if (d.action === 'plan.tfr') return planTfr(d);
   if (d.action === 'plan.wx') return planWx(d);
@@ -238,7 +239,9 @@ var PTABS = {
   'Mission Files': ['Mission #', 'Form', 'File name', 'File ID', 'Saved', 'Saved by'],
   Courses: ['Course ID', 'Title', 'Category', 'Description', 'Video / link', 'Slides file ID', 'Slides name', 'Quiz JSON', 'Pass %', 'Required', 'Assigned to',
             'Due date', 'Repeat', 'Status', 'Created', 'Updated by'],
-  Completions: ['Course ID', 'Course', 'Pilot ID', 'Pilot', 'Score %', 'Passed', 'Completed', 'Valid until', 'Certificate file ID']
+  Completions: ['Course ID', 'Course', 'Pilot ID', 'Pilot', 'Score %', 'Passed', 'Completed', 'Valid until', 'Certificate file ID'],
+  Announcements: ['Ann ID', 'Title', 'Message', 'Important', 'Posted', 'Posted by', 'Expires', 'Status', 'Emailed'],
+  'Announcement Reads': ['Ann ID', 'Pilot ID', 'Pilot', 'Read']
 };
 var PFIELDS = ['name', 'phone', 'email', 'cert', 'issued', 'recurrent', 'due', 'other'];
 
@@ -612,6 +615,55 @@ function trainAction(d) {
     X.appendRow([String(c['Course ID']), clean(c['Title'], 120), me.id, clean(pname, 80), score, 'Yes', now, until || '', file.getId()]);
     ss.getSheetByName('Documents').appendRow([file.getId(), me.id, 'Other certificate', clean('Training: ' + c['Title'], 120), '', '', until ? fmt(until) : '', file.getName(), now, clean(pname, 80), 'Active']);
     return {ok: true, passed: true, score: score, pass: pass, certificate: file.getId(), until: until ? fmt(until) : ''};
+  }
+  return {ok: false, error: 'unknown action'};
+}
+
+
+// ===================== Announcements =====================
+function annAction(d) {
+  var ss = pilotBook(), me = pilotAuth(d, ss), A = ss.getSheetByName('Announcements'), RD = ss.getSheetByName('Announcement Reads');
+  if (d.action === 'ann.list') {
+    ensurePilot(ss, me.id, me.name, me.admin ? 'admin' : 'pilot');
+    var now = new Date(), reads = rows(RD), mine = {};
+    reads.forEach(function (r) { if (String(r['Pilot ID']) === me.id) mine[String(r['Ann ID'])] = r['Read']; });
+    var list = rows(A).filter(function (a) { return a['Status'] === 'Active'; }).map(function (a) {
+      var id = String(a['Ann ID']), exp = mdy(a['Expires']);
+      var o = {id: id, title: a['Title'], message: a['Message'], important: a['Important'] === 'Yes', posted: a['Posted'], by: a['Posted by'],
+               expires: a['Expires'] || '', expired: !!(exp && exp < new Date(now.getFullYear(), now.getMonth(), now.getDate())), read: mine[id] || ''};
+      if (me.admin) o.reads = reads.filter(function (r) { return String(r['Ann ID']) === id; }).map(function (r) { return {id: String(r['Pilot ID']), name: r['Pilot'], read: r['Read']}; });
+      return o;
+    }).filter(function (a) { return me.admin || !a.expired; }).reverse();
+    var out = {ok: true, announcements: list};
+    if (me.admin) out.pilots = rows(ss.getSheetByName('Pilots')).filter(function (p) { return p['Status'] !== 'Inactive'; }).map(function (p) { return {id: String(p['Pilot ID']), name: p['Name'] || p['Pilot ID']}; });
+    return out;
+  }
+  if (d.action === 'ann.read') {
+    var r0 = findRow(A, 'Ann ID', String(d.id)); if (!r0) return {ok: false, error: 'not found'};
+    var dup = rows(RD).some(function (r) { return String(r['Ann ID']) === String(d.id) && String(r['Pilot ID']) === me.id; });
+    if (!dup) { var pr = findRow(ss.getSheetByName('Pilots'), 'Pilot ID', me.id); RD.appendRow([String(d.id), me.id, clean((pr && pr.obj['Name']) || me.name, 80), new Date()]); }
+    return {ok: true};
+  }
+  if (!me.admin) return {ok: false, error: 'admins only'};
+  if (d.action === 'ann.post') {
+    var lock = LockService.getScriptLock(); lock.waitLock(20000);
+    try {
+      var props = PropertiesService.getScriptProperties(), n = Number(props.getProperty('ANN_NEXT') || 1), id = 'AN-' + ('00' + n).slice(-3);
+      props.setProperty('ANN_NEXT', String(n + 1));
+      var title = clean(d.title, 120), msg = clean(d.message, 4000), emailed = 0;
+      if (!title) return {ok: false, error: 'title required'};
+      if (d.email) {
+        var to = rows(ss.getSheetByName('Pilots')).filter(function (p) { return p['Status'] !== 'Inactive' && /@/.test(String(p['Email'] || '')); }).map(function (p) { return String(p['Email']).trim(); });
+        if (to.length) { GmailApp.sendEmail(OFFICE_EMAIL, (d.important ? 'IMPORTANT: ' : '') + 'Overhead UAS announcement: ' + title,
+          msg + '\n\n- ' + me.name + '\n\nOpen the Pilot Portal to mark it as read: https://overheaduas.com/pilots', {bcc: to.join(','), name: 'Overhead UAS'}); emailed = to.length; }
+      }
+      A.appendRow([id, title, msg, d.important ? 'Yes' : 'No', new Date(), clean(me.name, 80), clean(d.expires, 20), 'Active', emailed]);
+      return {ok: true, id: id, emailed: emailed};
+    } finally { lock.releaseLock(); }
+  }
+  if (d.action === 'ann.delete') {
+    var r1 = findRow(A, 'Ann ID', String(d.id)); if (!r1) return {ok: false, error: 'not found'};
+    A.getRange(r1.i, PTABS.Announcements.indexOf('Status') + 1).setValue('Deleted'); return {ok: true};
   }
   return {ok: false, error: 'unknown action'};
 }
