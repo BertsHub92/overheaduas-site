@@ -125,6 +125,11 @@
   .viewer-body{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;align-items:flex-start;justify-content:center;background:#525659}
   .viewer-body img{max-width:100%;height:auto;margin:auto;display:block}
   .viewer-body iframe{width:100%;height:100%;border:0;background:#fff}
+  .pdf-pages{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 8px 24px;width:100%}
+  .pdf-page{background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.35);max-width:100%}
+  .pdf-pnum{color:#e6e9ec;font-size:12px;margin-bottom:10px}
+  .pdf-loading{color:#e6e9ec;padding:30px 16px;text-align:center}
+  .pdf-loading b{color:#fff}
   .who-mission{margin-top:6px}
   .mchip{display:inline-block;font-size:13px;font-weight:600;padding:5px 11px;border-radius:999px;background:rgba(199,119,0,.14);color:#a86400;text-decoration:none}
   .mlist{display:grid;gap:10px;margin-top:12px}
@@ -440,7 +445,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 18; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 19; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -563,6 +568,27 @@
     const sc = document.createElement('script'); sc.src = 'vendor/pdf-lib.min.js';
     sc.onload = () => ok(window.PDFLib); sc.onerror = bad; document.head.appendChild(sc);
   });
+  // pdf.js draws every page of a PDF ourselves: phone browsers only show page 1 (iPhone) or nothing (Android) in a frame
+  let pdfJsPromise = null;
+  const loadPdfJs = () => pdfJsPromise ||= new Promise((ok, bad) => {
+    const sc = document.createElement('script'); sc.src = 'vendor/pdfjs/pdf.min.js';
+    sc.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js'; ok(window.pdfjsLib); };
+    sc.onerror = () => { pdfJsPromise = null; bad(new Error('viewer did not load')); }; document.head.appendChild(sc);
+  });
+  async function renderPdfPages(blob, box) {
+    const lib = await loadPdfJs(), doc = await lib.getDocument({data: new Uint8Array(await blob.arrayBuffer())}).promise;
+    box.innerHTML = '';
+    const w = Math.min(box.clientWidth - 16, 900), dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i), v1 = page.getViewport({scale: 1}), scale = w / v1.width, vp = page.getViewport({scale: scale * dpr});
+      const c = document.createElement('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+      c.style.width = Math.floor(vp.width / dpr) + 'px'; c.style.height = Math.floor(vp.height / dpr) + 'px'; c.className = 'pdf-page';
+      const lab = document.createElement('div'); lab.className = 'pdf-pnum'; lab.textContent = `Page ${i} of ${doc.numPages}`;
+      box.appendChild(c); box.appendChild(lab);
+      await page.render({canvasContext: c.getContext('2d'), viewport: vp}).promise;
+    }
+    return doc.numPages;
+  }
   const store = {
     get(k) { try { return localStorage.getItem('ouas_' + k) || ''; } catch (e) { return ''; } },
     set(k, v) { try { v ? localStorage.setItem('ouas_' + k, v) : localStorage.removeItem('ouas_' + k); } catch (e) {} }
@@ -927,15 +953,17 @@
     const blob = data instanceof Blob ? data : new Blob([data], {type: mime});
     const url = URL.createObjectURL(blob), isImg = /^image\//.test(mime), isPdf = /pdf/.test(mime), isHtml = /html/.test(mime);
     const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const mobilePdf = isPdf && (ios || /Android|Mobi/i.test(navigator.userAgent));
     const ov = document.createElement('div'); ov.className = 'viewer';
     ov.innerHTML = `<div class="viewer-bar"><b>${esc(name)}</b><div class="viewer-btns">
         ${isPdf || isHtml ? '<button class="btn btn-ghost sm" data-v="print">Print</button>' : ''}
         <button class="btn btn-primary sm" data-v="share">${ios ? 'Share / Save' : 'Download'}</button><button class="btn btn-ghost sm" data-v="close" aria-label="Close">&times; Close</button></div></div>
-      ${isPdf && ios ? '<p class="viewer-tip">Tip: tap <b>Share / Save</b> to see every page, print, or save to Files.</p>' : ''}
-      <div class="viewer-body">${isImg ? `<img src="${url}" alt="${esc(name)}">` : `<iframe src="${url}" title="${esc(name)}"></iframe>`}</div>`;
+      <div class="viewer-body">${isImg ? `<img src="${url}" alt="${esc(name)}">` : mobilePdf ? '<div class="pdf-pages"><p class="pdf-loading">Loading pages…</p></div>' : `<iframe src="${url}" title="${esc(name)}"></iframe>`}</div>`;
     document.body.appendChild(ov); document.body.style.overflow = 'hidden';
     const close = () => { ov.remove(); document.body.style.overflow = ''; setTimeout(() => URL.revokeObjectURL(url), 1000); };
     ov.querySelector('[data-v=close]').onclick = close;
+    if (mobilePdf) { const box = ov.querySelector('.pdf-pages');
+      renderPdfPages(blob, box).catch(e => { box.innerHTML = `<p class="pdf-loading">Couldn't show the pages here (${esc(e.message)}). Tap <b>${ios ? 'Share / Save' : 'Download'}</b> to open the PDF.</p>`; }); }
     const onKey = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } }; document.addEventListener('keydown', onKey);
     ov.querySelector('[data-v=share]').onclick = async () => {
       const file = new File([blob], name, {type: mime});
@@ -944,7 +972,7 @@
     const pr = ov.querySelector('[data-v=print]');
     if (pr) pr.onclick = async () => {
       const fr = ov.querySelector('iframe');
-      try { fr.contentWindow.focus(); fr.contentWindow.print(); }
+      try { if (!fr) throw 0; fr.contentWindow.focus(); fr.contentWindow.print(); }
       catch (e) { const r = await shareFile(new File([blob], name, {type: mime}), name); if (r === false) saveBlob(url, name); }
     };
   }
