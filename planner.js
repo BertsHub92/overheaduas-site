@@ -30,7 +30,13 @@
     const x = Math.sin(dLat / 2) ** 2 + Math.cos(a * rad) * Math.cos(c * rad) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); }
   function bearing(a, b, c, d) { const y = Math.sin((d - b) * rad) * Math.cos(c * rad), x = Math.cos(a * rad) * Math.sin(c * rad) - Math.sin(a * rad) * Math.cos(c * rad) * Math.cos((d - b) * rad);
     const deg = (Math.atan2(y, x) / rad + 360) % 360; return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8]; }
-  async function getJSON(url, opt) { const r = await fetch(url, opt); if (!r.ok) throw new Error('HTTP ' + r.status); const j = await r.json(); if (j && j.error && typeof j.error !== 'boolean') throw new Error(j.error.message || j.reason || 'service error'); return j; }
+  async function tfetch(url, opt, ms) {   // fetch with a time limit so a slow service can't stall the briefing
+    const ac = typeof AbortController === 'function' ? new AbortController() : null, t = ac ? setTimeout(() => ac.abort(), ms || 15000) : 0;
+    try { return await fetch(url, Object.assign({}, opt || {}, ac ? {signal: ac.signal} : {})); }
+    catch (e) { throw new Error(e && e.name === 'AbortError' ? 'timed out' : 'no connection'); } finally { clearTimeout(t); }
+  }
+  const within = (pr, ms) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))]);
+  async function getJSON(url, opt) { const r = await tfetch(url, opt, 15000); if (!r.ok) throw new Error('HTTP ' + r.status); const j = await r.json(); if (j && j.error && typeof j.error !== 'boolean') throw new Error(j.error.message || j.reason || 'service error'); return j; }
   const qs = o => Object.entries(o).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
   function arcgis(layer, p) { return getJSON(layer + '/query?' + qs(Object.assign({f: 'json', outFields: '*', returnGeometry: false, inSR: 4326, outSR: 4326}, p))); }
   function arcPoint(layer, lat, lon, extra) { return arcgis(layer, Object.assign({geometry: lon + ',' + lat, geometryType: 'esriGeometryPoint', spatialRel: 'esriSpatialRelIntersects'}, extra || {})); }
@@ -188,7 +194,7 @@
 
     // ---- briefing data
     const script = (action, body) => X.submit && X.submit.url
-      ? fetch(X.submit.url, {method: 'POST', body: JSON.stringify(Object.assign({token: X.submit.token, action}, body))}).then(r => r.json()).then(j => { if (!j.ok) throw new Error(j.error || action + ' failed'); return j; })
+      ? tfetch(X.submit.url, {method: 'POST', body: JSON.stringify(Object.assign({token: X.submit.token, action}, body))}, 30000).then(r => r.json()).then(j => { if (!j.ok) throw new Error(j.error || action + ' failed'); return j; })
       : Promise.reject(new Error('not connected'));
     async function briefing() {
       const lat = S.lat, lon = S.lon;
@@ -208,11 +214,14 @@
           hourly: 'temperature_2m,precipitation_probability,weather_code,cloud_cover_low,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,wind_speed_80m,wind_speed_120m,wind_direction_120m'})),
         avwx: wx.catch(() => null).then(w => script('plan.wx', {lat, lon, station: w && w.obs ? w.obs.station : ''}))
       };
-      const keys = Object.keys(jobs), res = await Promise.allSettled(Object.values(jobs));
+      const keys = Object.keys(jobs), res = await Promise.allSettled(Object.values(jobs).map(j => within(j, 40000)));
       if (S.lat !== lat || S.lon !== lon) return;
+      try {
       keys.forEach((k, i) => { B[k] = res[i].status === 'fulfilled' ? res[i].value : null; B[k + 'Err'] = res[i].status === 'rejected' ? (res[i].reason && res[i].reason.message) || 'unavailable' : ''; });
       S.brief = B; S.tz = (B.om && B.om.timezone) || (B.wx && B.wx.tz);
-      drawBrief(); drawRisk(); drawOverlays(lat, lon);
+      } catch (e) { S.brief = Object.assign(B, {fatal: e.message || 'error'}); }
+      for (const f of [drawBrief, drawRisk, () => drawOverlays(lat, lon)]) { try { f(); } catch (e) { console.error(e); if (f === drawBrief) $('plBrief').innerHTML = `<div class="pcard"><h4>Briefing</h4><p class="note">Some briefing data couldn't be shown (${esc(e.message)}). You can still build the kneeboard pack.</p><button class="btn btn-ghost sm" data-x="rebrief">Retry briefing</button></div>`; } }
+      const rb = $('plBrief').querySelector('[data-x=rebrief]'); if (rb) rb.onclick = () => briefing();
     }
     async function nws(lat, lon) {
       const H = {headers: {Accept: 'application/geo+json'}};
@@ -334,6 +343,9 @@
         <div class="brow"><div class="bl">GPS / space weather</div><div>${B.avwxErr || !av.kp ? err('Kp unavailable') : kpNow ? `<span class="badge ${kpNow.kp >= 5 ? 'red' : kpNow.kp >= 4 ? 'amber' : 'green'}">Kp ${kpNow.kp}</span> <span class="note">${kpNow.kp >= 5 ? 'Geomagnetic storm: GPS may be degraded. Be ready to fly manually (ATTI).' : kpNow.kp >= 4 ? 'Active: watch GPS satellite count.' : 'Quiet: normal GPS expected.'}</span>` : '<span class="note">Kp forecast covers about 3 days.</span>'}</div></div>
         <div class="brow"><div class="bl">Sun</div><div>${Z.sun ? `Civil dawn ${fmtT(Z.sun.dawn)} · Sunrise ${fmtT(Z.sun.sunrise)} · Sunset ${fmtT(Z.sun.sunset)} · Civil dusk ${fmtT(Z.sun.dusk)}` : ''}<div class="note">Flying before civil dawn or after civil dusk is night operations (anti-collision lighting and night training required).</div></div></div>
       </div>`;
+      const fails = ['grid', 'cls', 'sua', 'apt', 'tfr', 'wx', 'om', 'avwx'].filter(k => B[k + 'Err']);
+      if (fails.length) box.insertAdjacentHTML('beforeend', `<div class="pcard"><p class="note">${fails.length} of 8 data sources didn't respond (${esc([...new Set(fails.map(k => B[k + 'Err']))].join(', '))}). Check your signal, then retry. You can still build the kneeboard pack.</p><button class="btn btn-ghost sm" data-x="rebrief">Retry briefing</button></div>`);
+      const rb = box.querySelector('[data-x=rebrief]'); if (rb) rb.onclick = () => briefing();
       box.querySelectorAll('[data-hr]').forEach(b => b.onclick = () => { $('plTime').value = String(b.dataset.hr).padStart(2, '0') + ':00';
         const e = (+b.dataset.hr + 1) % 24; $('plEnd').value = String(e).padStart(2, '0') + ':00'; redraw(); });
     }

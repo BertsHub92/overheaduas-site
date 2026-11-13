@@ -439,7 +439,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 15; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 16; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
