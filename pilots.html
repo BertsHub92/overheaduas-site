@@ -135,7 +135,8 @@
   .aloft th,.aloft td{border:1px solid var(--line);padding:4px 9px;text-align:center}
   .aloft th{font-size:11.5px;color:var(--muted);font-weight:600}
   .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;background:var(--bg);border-radius:6px;padding:6px 8px;margin:4px 0;word-break:break-word}
-  .timeline{display:flex;gap:3px;overflow-x:auto;padding:2px 0 4px}
+  .timeline{display:flex;flex-wrap:wrap;gap:4px;padding:2px 0 4px;max-width:100%}
+  .plan-brief .brow>*{min-width:0} #planView,#planView .pcard{min-width:0;max-width:100%}
   .tl{flex:0 0 auto;width:36px;border:0;border-radius:6px;padding:4px 0;cursor:pointer;font:11px Inter,sans-serif;display:flex;flex-direction:column;align-items:center;gap:1px;color:#fff}
   .tl b{font-size:13px} .tl.green{background:#1b7a40} .tl.amber{background:#c77700} .tl.red{background:#c42330}
   .tl.sel{outline:3px solid var(--text);outline-offset:1px}
@@ -439,7 +440,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 16; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 17; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');

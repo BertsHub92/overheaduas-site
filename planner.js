@@ -228,7 +228,7 @@
       const pt = await getJSON(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`, H);
       const P = pt.properties, out = {tz: P.timeZone, place: P.relativeLocation && P.relativeLocation.properties ? P.relativeLocation.properties.city + ', ' + P.relativeLocation.properties.state : ''};
       try { const st = await getJSON(P.observationStations, H); const id = st.features[0].properties.stationIdentifier;
-        const o = await getJSON(`https://api.weather.gov/stations/${id}/observations/latest`, H); out.obs = Object.assign({station: id}, o.properties); } catch (e) { out.obs = null; }
+        const o = await getJSON(`https://api.weather.gov/stations/${id}/observations/latest`, H); out.obs = Object.assign({}, o.properties, {station: id}); } catch (e) { out.obs = null; }
       return out;
     }
 
