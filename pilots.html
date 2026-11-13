@@ -156,7 +156,12 @@
   .plan-hit:hover{border-color:var(--blue)}
   .plan-map{height:min(58vh,520px);border-radius:12px;margin-top:10px;border:1px solid var(--line);z-index:0}
   .plan-inputs{margin-top:12px}
-  .plan-inputs input,.plan-inputs select,#plNotes{width:100%;padding:10px 12px;font-size:15px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);font-family:Inter,sans-serif}
+  .plan-inputs .remember{margin-top:4px;font-size:14.5px;color:var(--text);align-items:flex-start;line-height:1.4}
+  .plan-inputs .remember input{width:20px;height:20px;margin:0;flex:none}
+  .grid2>*{min-width:0}
+  input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;min-width:0;max-width:100%;box-sizing:border-box;display:block;min-height:44px;text-align:left}
+  input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and-time-value{text-align:left;margin:0}
+  .plan-inputs input:not([type=checkbox]),.plan-inputs select,#plNotes{width:100%;padding:10px 12px;font-size:15px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);font-family:Inter,sans-serif}
   .plan-brief .brow{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--line);font-size:14.5px}
   .plan-brief .bl{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--blue);padding-top:3px}
   .plan-brief .brow > div:last-child > div{margin:3px 0}
@@ -434,7 +439,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 14; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 15; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
