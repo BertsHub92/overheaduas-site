@@ -253,7 +253,18 @@
 
     function summarize() {
       const B = S.brief || {}, grid = B.grid || [], cls = B.cls || [];
-      const surface = cls.filter(a => String(pick(a, /^LOWER_CODE$/i)).toUpperCase() === 'SFC' || /E2|E4/i.test(pick(a, /^LOCAL_TYPE$/i)) || +pick(a, /^LOWER_VAL$/i) === 0);
+      const alt0 = +$('plAlt').value || 400, elevFt = B.om && typeof B.om.elevation === 'number' ? B.om.elevation * 3.28084 : null;
+      // Floor of each airspace in ft above the ground. E5/E6/E7 are transition / en-route areas that never start at the surface
+      // (700 or 1,200 ft AGL or higher), so below 400 ft they are Class G. MSL floors use the ground elevation from the forecast.
+      const floorAGL = a => {
+        const lt = String(pick(a, /^LOCAL_TYPE$/i) || '') + ' ' + String(pick(a, /^NAME$/i) || ''), code = String(pick(a, /^LOWER_CODE$/i) || pick(a, /^LOWER_DESC$/i) || '').toUpperCase();
+        const v = parseFloat(pick(a, /^LOWER_VAL$/i)), msl = /MSL/.test(code);
+        if (/E[567]\b|CLASS_E[567]/i.test(lt)) { if (!(v > 0)) return /E5/i.test(lt) ? 700 : 1200; return msl ? (elevFt !== null ? v - elevFt : Math.max(700, v - 2000)) : v; }
+        if (code === 'SFC' || /E2|E3|E4/i.test(lt) || v === 0 || isNaN(v)) return 0;
+        return msl ? (elevFt !== null ? v - elevFt : 0) : v;     // unknown ground elevation -> assume it applies (conservative)
+      };
+      const atAlt = cls.filter(a => floorAGL(a) <= alt0), overhead = cls.filter(a => floorAGL(a) > alt0);
+      const surface = atAlt;
       const top = surface.sort((a, b) => (RANK[String(pick(b, /^CLASS$/i)).toUpperCase()] || 0) - (RANK[String(pick(a, /^CLASS$/i)).toUpperCase()] || 0))[0];
       const ceilings = grid.map(g => +pick(g, /^CEILING$/i)).filter(x => !isNaN(x));
       const ceiling = ceilings.length ? Math.min(...ceilings) : null;
@@ -265,8 +276,13 @@
         const c = top ? String(pick(top, /^CLASS$/i)).toUpperCase() : '';
         airspace = (c ? 'Class ' + c : 'Controlled airspace') + (top && pick(top, /^NAME$/i) ? ' (' + pick(top, /^NAME$/i) + ')' : '');
         laanc = ceiling === null ? 'No LAANC grid here: requires FAA DroneZone authorization' : ceiling === 0 ? 'LAANC ceiling 0 ft: no LAANC, FAA DroneZone authorization needed' : `LAANC grid ceiling ${ceiling} ft AGL${gAirport ? ' (' + gAirport + ')' : ''}`;
-        risk = (c === 'B' || c === 'C' || ceiling === 0 || ceiling === null) ? 3 : 2; why = (c ? 'Class ' + c : 'Controlled') + (ceiling ? `, LAANC ${ceiling} ft` : '');
-      } else { airspace = 'Class G (uncontrolled) at 400 ft AGL and below'; laanc = 'No LAANC authorization needed'; why = 'Class G'; }
+        risk = (c === 'B' || c === 'C' || ceiling === 0 || (ceiling === null && top)) ? 3 : 2; why = (c ? 'Class ' + c : 'Controlled') + (ceiling ? `, LAANC ${ceiling} ft` : '');
+      } else {
+        const lo = overhead.map(a => ({a, f: floorAGL(a)})).sort((x, y) => x.f - y.f)[0];
+        airspace = lo ? `Class G (uncontrolled) below ${Math.round(lo.f / 100) * 100} ft AGL` : 'Class G (uncontrolled) at 400 ft AGL and below';
+        laanc = 'No LAANC authorization needed' + (lo ? ` · Class ${String(pick(lo.a, /^CLASS$/i) || 'E').toUpperCase()} starts about ${Math.round(lo.f / 100) * 100} ft above the ground (${pick(lo.a, /^NAME$/i) || 'controlled airspace'})` : '');
+        why = 'Class G';
+      }
       const above = ceiling !== null && ceiling > 0 && alt > ceiling;
       if (above) laanc += ` · planned ${alt} ft is ABOVE the grid ceiling`;
       const tfrIn = (B.tfr || []).filter(t => t.inside), tfrNear = (B.tfr || []).filter(t => !t.inside && t.miles <= 5);
@@ -421,7 +437,7 @@
       const wx = fc ? `${WMO(fc.code)}, ${fc.temp}°F, precip ${fc.pop ?? '-'}%, vis ${fc.vis ?? '-'} SM. Wind ${dirTxt(fc.dir)} ${fc.w10 ?? '-'} kt sfc / ${fc.w120 ?? '-'} kt at 400 ft, gusts ${fc.gust ?? '-'} kt` : '';
       const hz = [$('plNotes').value.trim(), ...Z.tfrs.map(t => (t.inside ? 'INSIDE TFR: ' : 'TFR ' + t.miles + ' mi: ') + (t.title.length > 60 ? t.title.slice(0, 57) + '...' : t.title)),
         ...(B.apt || []).slice(0, 2).map(f => { const a = f.attributes, g = f.geometry || {}; return (String(pick(a, /^TYPE_CODE$/i)).toUpperCase() === 'HP' ? 'Heliport ' : 'Airport ') + pick(a, /^IDENT$/i) + (g.y !== undefined ? ' ' + distMi(S.lat, S.lon, g.y, g.x).toFixed(1) + ' mi ' + bearing(S.lat, S.lon, g.y, g.x) : ''); })].filter(Boolean).join('; ');
-      const short = Z.airspace.replace(/\s*\(.*\)\s*/, '').replace(' (uncontrolled) at 400 ft AGL and below', '').replace('Could not load airspace data', 'Verify airspace');
+      const short = Z.airspace.replace(/\s*\(.*\)\s*/, '').replace(' (uncontrolled) at 400 ft AGL and below', '').replace(/ \(uncontrolled\) below.*/, '').replace('Could not load airspace data', 'Verify airspace');
       const lshort = Z.ceiling !== null ? (Z.ceiling ? `LAANC ${Z.ceiling} ft AGL` : 'LAANC 0 ft: DroneZone auth') : /Class G/.test(Z.airspace) ? 'no LAANC needed' : 'no LAANC grid';
       return {Z, wx, hz, metar: av.metar ? av.metar.raw : '', air: Z.airspace + (Z.laanc ? ' · ' + Z.laanc : ''), airShort: short + ' · ' + lshort + (Z.above ? ' · plan ABOVE ceiling' : '') + (Z.tfrs.some(t => t.inside) ? ' · IN TFR' : '')};
     }
