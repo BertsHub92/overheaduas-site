@@ -445,7 +445,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 20; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 21; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1616,6 +1616,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     let r; try { r = await papi('pilots.list'); } catch (e) { v.querySelector('.note').outerHTML = `<p class="err-msg">Couldn't load pilots (${esc(e.message)}).</p>`; return; }
     const known = new Set(r.pilots.map(p => String(p.id)));
     const waiting = (manifest.roster || []).filter(x => !known.has(x.id));
+    const roleOf = new Map((manifest.roster || []).map(x => [x.id, x.role])); r.pilots.forEach(p => { if (roleOf.has(String(p.id))) p.role = roleOf.get(String(p.id)); });   // the sign-in codes decide who is admin
     const ps = r.pilots.slice().sort((a, b) => (a.status === 'Inactive') - (b.status === 'Inactive') || String(a.name).localeCompare(String(b.name)));
     v.innerHTML = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Current Pilots</h2></div>
       <p class="note">Pilots appear here after they sign in for the first time. Tap a pilot to open their folder.</p>
