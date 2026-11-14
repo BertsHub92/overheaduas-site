@@ -152,6 +152,9 @@
   .viewer-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));background:var(--panel);border-bottom:1px solid var(--line)}
   .viewer-bar b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60vw;color:var(--text)}
   .viewer-btns{display:flex;gap:6px;flex-wrap:wrap}
+  .review-box{border:1px dashed var(--line2);border-radius:10px;padding:10px 12px;margin-bottom:10px} .review-box .note{margin:0 0 8px}
+  .review-bar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px calc(12px + env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--line);color:var(--text);font-size:14.5px}
+  .review-bar .btn{flex:none}
   .viewer-size{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:var(--blue-soft);font-size:13px;color:var(--blue)}
   .viewer-size button{border:1px solid var(--blue);background:transparent;color:var(--blue);border-radius:999px;padding:5px 11px;font:600 12.5px Inter,sans-serif;cursor:pointer}
   .viewer-size button.on{background:var(--blue);color:#fff}
@@ -486,7 +489,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 30; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 31; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -689,7 +692,11 @@
           <div class="sig-preview"><span>${esc(s.empty || 'No sketch yet')}</span></div>
           <div class="sig-row"><span class="sig-label">${esc(s.label)}${s.optional ? ' (optional)' : ' <span class="req">*</span>'}</span>
           <button class="btn btn-ghost sig-btn" type="button" data-sign="${s.key}">${esc(s.button || 'Draw')}</button></div></div>`; });
-      if (sg.length) html += `<h4>Signature${sg.length > 1 ? 's' : ''}</h4><div class="sigs">` + sg.map(s => `
+      const outside = sg.filter(s => mustReview(s));
+      if (sg.length) html += `<h4>Signature${sg.length > 1 ? 's' : ''}</h4>
+        <div class="review-box"><p class="note">${outside.length ? `Before ${esc(outside.map(x => x.label.toLowerCase()).join(' / '))} signs, the full document opens so they can read every page first.` : 'Check the completed document before signing.'}</p>
+          <button class="btn btn-ghost" type="button" data-go="review">&#128196; Review full document</button></div>
+        <div class="sigs">` + sg.map(s => `
         <div class="sig" data-sig="${s.key}">
           <div class="sig-preview"><span>Not signed yet</span></div>
           <div class="sig-row"><span class="sig-label">${esc(s.label)} signature <span class="req">*</span></span>
@@ -772,11 +779,13 @@
     box.addEventListener('change', e => { if (e.target.dataset.c) e.target.closest('[data-group]')?.classList.remove('invalid'); });
 
     (F.signatures || []).forEach(s => {
-      q(`[data-sign="${s.key}"]`).onclick = () => {
+      q(`[data-sign="${s.key}"]`).onclick = async e => {
         const name = field(s.nameField)?.value.trim() || '';
+        let reviewed = '';
+        if (mustReview(s)) { reviewed = await reviewBeforeSign(f, box, s, e.currentTarget); if (!reviewed) return; }
         signaturePad(s.label, name, png => {
           const when = nowStamp();
-          box._sigs[s.key] = {png, when, name, date: todayIso(), kind: s.kind};
+          box._sigs[s.key] = {png, when, name, date: todayIso(), kind: s.kind, reviewed};
           const el = q(`[data-sig="${s.key}"]`); el.classList.remove('invalid'); el.classList.add('signed');
           el.querySelector('.sig-preview').innerHTML = `<img alt="${esc(s.label)}" src="${png}">` + (s.kind === 'sketch' ? '' : `<small>Signed ${esc(when)}</small>`);
           q(`[data-sign="${s.key}"]`).textContent = s.kind === 'sketch' ? 'Edit sketch' : 'Redo';
@@ -784,6 +793,19 @@
       };
     });
 
+    if (q('[data-go=review]')) q('[data-go=review]').onclick = async e => { const b = e.currentTarget, t = b.innerHTML; b.disabled = true; b.textContent = 'Preparing…';
+      try { const {bytes} = await buildPdf(f, box, {flatten: true, signed: false}); showFile(bytes, fileName(f, box) + '_review.pdf', 'application/pdf'); }
+      catch (x) { alert('Could not prepare the document (' + x.message + ')'); } finally { b.disabled = false; b.innerHTML = t; } };
+    // if the form is changed after an outside party signed, their signature no longer matches what they read
+    const resetOutside = ev => {
+      if (ev.target.id === 'fx_remember' || ev.target.closest('.sig')) return;
+      (F.signatures || []).filter(x => mustReview(x) && box._sigs[x.key]).forEach(x => {
+        delete box._sigs[x.key]; const el = q(`[data-sig="${x.key}"]`); el.classList.remove('signed');
+        el.querySelector('.sig-preview').innerHTML = `<span class="warn-inline">The document changed after ${esc(x.label.toLowerCase())} signed. They need to review and sign again.</span>`;
+        q(`[data-sign="${x.key}"]`).textContent = x.label + ' sign';
+      });
+    };
+    box.addEventListener('input', resetOutside); box.addEventListener('change', resetOutside);
     q('[data-go=print]').onclick = e => makeFilled(f, box, 'print', e.currentTarget);
     q('[data-go=download]').onclick = e => makeFilled(f, box, 'download', e.currentTarget);
     if (q('[data-go=submit]')) q('[data-go=submit]').onclick = e => submitSigned(f, box, e.currentTarget);
@@ -905,6 +927,21 @@
   }
 
   // Build the PDF. signed=true stamps signatures + e-sign record and flattens.
+  // Signers other than the pilot / company rep must see the whole completed document before the signature pad opens.
+  const mustReview = s => s.kind !== 'sketch' && !/^(pilot|rep|sketch)$/.test(s.key);
+  async function reviewBeforeSign(f, box, s, btn) {
+    const label = btn.textContent; btn.disabled = true; btn.textContent = 'Opening document…';
+    let bytes; try { ({bytes} = await buildPdf(f, box, {flatten: true, signed: false})); } catch (x) { alert('Could not prepare the document (' + x.message + ')'); return ''; } finally { btn.disabled = false; btn.textContent = label; }
+    return new Promise(done => {
+      const v = showFile(bytes, fileName(f, box) + '_review.pdf', 'application/pdf', {review: true});
+      const bar = document.createElement('div'); bar.className = 'review-bar';
+      bar.innerHTML = `<span><b>${esc(s.label)}:</b> please read the whole document above before signing.</span><button class="btn btn-primary" type="button">I've read it &ndash; sign</button>`;
+      v.ov.appendChild(bar);
+      let settled = false; const finish = val => { if (settled) return; settled = true; done(val); };
+      bar.querySelector('button').onclick = () => { finish(nowStamp()); v.close(); };
+      v.onClose(() => finish(''));
+    });
+  }
   async function buildPdf(f, box, {flatten, signed}) {
     const remember = box.querySelector('#fx_remember').checked;
     (f.fill.remember || []).forEach(n => { const el = box.querySelector(`[data-n="${n}"]`); store.set(n, remember && el ? el.value.trim() : ''); });
@@ -953,7 +990,7 @@
       } else {
         const hMax = s.hMax || 30, wMax = r.width * 0.7, sc = Math.min(hMax / img.height, wMax / img.width);
         page.drawImage(img, {x: r.x + 4, y: r.y - 2, width: img.width * sc, height: img.height * sc});
-        parts.push(`${s.label}: ${sig.name || '(name not entered)'}, signed ${sig.when}`);
+        parts.push(`${s.label}: ${sig.name || '(name not entered)'}, ${sig.reviewed ? 'reviewed the full document on screen at ' + sig.reviewed + ' and ' : ''}signed ${sig.when}`);
       }
       form.removeField(tf);
     }
@@ -1013,7 +1050,7 @@
     const pg = d.getPage(0); return {w: pg.getWidth(), h: pg.getHeight()};
   }
 
-  function showFile(data, name, mime) {
+  function showFile(data, name, mime, opts = {}) {
     const orig = data instanceof Blob ? data : new Blob([data], {type: mime});
     const isImg = /^image\//.test(mime), isPdf = /pdf/.test(mime), isHtml = /html/.test(mime);
     const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -1034,8 +1071,10 @@
       renderPdfPages(cur.blob, box).catch(e => { box.innerHTML = `<p class="pdf-loading">Couldn't show the pages here (${esc(e.message)}). Tap <b>${ios ? 'Share / Save' : 'Download'}</b> to open the PDF.</p>`; });
     };
     draw();
-    const close = () => { ov.remove(); document.body.style.overflow = ''; setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 1000); };
+    const closers = [];
+    const close = () => { if (!ov.isConnected) return; ov.remove(); document.body.style.overflow = ''; setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 1000); closers.forEach(fn => { try { fn(); } catch (e) {} }); };
     ov.querySelector('[data-v=close]').onclick = close;
+    if (opts.review) ov.querySelectorAll('[data-v=print], [data-v=share]').forEach(b => b.hidden = true);
     const onKey = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } }; document.addEventListener('keydown', onKey);
     ov.querySelector('[data-v=share]').onclick = async () => {
       const file = new File([cur.blob], cur.name, {type: mime});
@@ -1047,7 +1086,7 @@
       try { if (!fr) throw 0; fr.contentWindow.focus(); fr.contentWindow.print(); }
       catch (e) { const r = await shareFile(new File([cur.blob], cur.name, {type: mime}), cur.name); if (r === false) saveBlob(cur.url, cur.name); }
     };
-    if (isPdf) (async () => {
+    if (isPdf && !opts.review) (async () => {
       let sz; try { sz = await pdfFirstSize(orig); } catch (e) { return; }
       if (Math.min(sz.w, sz.h) >= 576 && Math.max(sz.w, sz.h) >= 756) return;      // already Letter / full size (portrait or landscape)
       const label = `${+(sz.w / 72).toFixed(2)} × ${+(sz.h / 72).toFixed(2)} in`;
@@ -1061,6 +1100,7 @@
       bar.querySelectorAll('button').forEach(b => b.onclick = () => set(b.dataset.sz));
       set('cut');
     })();
+    return {ov, close, onClose: fn => closers.push(fn)};
   }
 
   function saveBlob(url, name) { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
