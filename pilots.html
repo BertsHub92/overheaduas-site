@@ -482,7 +482,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 25; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 26; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1045,7 +1045,7 @@
     };
     if (isPdf) (async () => {
       let sz; try { sz = await pdfFirstSize(orig); } catch (e) { return; }
-      if (sz.w >= 576 && sz.h >= 756) return;      // already Letter / full size
+      if (Math.min(sz.w, sz.h) >= 576 && Math.max(sz.w, sz.h) >= 756) return;      // already Letter / full size (portrait or landscape)
       const label = `${+(sz.w / 72).toFixed(2)} × ${+(sz.h / 72).toFixed(2)} in`;
       let cut;
       try { const bytes = await cutSheet(new Uint8Array(await orig.arrayBuffer())); cut = {blob: new Blob([bytes], {type: 'application/pdf'}), name: name.replace(/\.pdf$/i, '') + '_print-and-cut.pdf'}; cut.url = URL.createObjectURL(cut.blob); urls.push(cut.url); }
@@ -1108,8 +1108,9 @@
         ? `<p class="ok-msg"><b>&#10003; Signed ${esc(docLabel)} submitted.</b> ${sent.quiet ? 'Saved to Overhead UAS records. No email was sent' : 'Emailed to Overhead UAS'}${sent.sentClient ? ' and a copy to ' + esc(shownCopy) : ''}${sent.quiet ? '.' : ', and saved for safe keeping.'}${sent.mission ? ' Filed in <b>' + esc(sent.mission) + '</b>.' : ''}</p>`
         : `<p class="err-msg"><b>The ${esc(docLabel)} is signed, but it couldn't be emailed automatically</b> (${esc(err)}). Use <b>Share / email</b> below to send it to overheaduas@gmail.com${shownCopy ? ' and ' + esc(shownCopy) : ''}, or download it.</p>`;
       doneEl.innerHTML += `<p class="note">Document ID: ${esc(docId)}</p>
-        <div class="fill-actions"><button class="btn ${sent ? 'btn-ghost' : 'btn-primary'}" data-d="share">Share / email</button><button class="btn btn-ghost" data-d="dl">Download signed copy</button><button class="btn btn-ghost" data-d="new">Start a new ${esc(docLabel)}</button></div>`;
+        <div class="fill-actions"><button class="btn btn-ghost" data-d="open">Open / print</button><button class="btn ${sent ? 'btn-ghost' : 'btn-primary'}" data-d="share">Share / email</button><button class="btn btn-ghost" data-d="dl">Download signed copy</button><button class="btn btn-ghost" data-d="new">Start a new ${esc(docLabel)}</button></div>`;
       doneEl.querySelector('[data-d=dl]').onclick = () => saveBlob(url, name);
+      doneEl.querySelector('[data-d=open]').onclick = () => showFile(file, name, 'application/pdf');
       doneEl.querySelector('[data-d=share]').onclick = async () => {
         const r = await shareFile(file, 'Signed Overhead UAS ' + docLabel);
         if (r === false) { saveBlob(url, name); alert('Sharing isn\'t available on this device, so the signed PDF was downloaded. Attach it to an email to overheaduas@gmail.com.'); }
