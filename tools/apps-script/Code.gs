@@ -708,6 +708,8 @@ function annAction(d) {
 var QUAL_ITEMS = ['OVH-101 Preflight Checklist reviewed', 'OVH-103 Emergency Procedures reviewed', 'OVH-201 / 202 / 203 / 205 forms reviewed',
   'OVH-204 Maintenance log & aircraft care', 'Pilot Portal access & pilot code issued', 'Client agreement & conduct (OVH-301)',
   'Privacy & surveillance footage handling (OVH-206)', 'SKYHOOK long-line checkout (if applicable, OVH-102)', 'Insurance requirements reviewed'];
+function qualYear() { return +Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy'); }
+function yearOf(d) { var p = String(d || '').split('/'); return p.length === 3 ? +p[2] : 0; }
 function initials(n) { return String(n || '').split(/\s+/).filter(Boolean).map(function (w) { return w.charAt(0).toUpperCase(); }).join('').slice(0, 4); }
 function qualRow(Q, pid, section, item) {
   var v = Q.getDataRange().getValues(), H = v[0];
@@ -719,6 +721,8 @@ function qualSet(ss, pid, section, item, f, by) {     // upsert one row; only th
   var cur = r ? Q.getDataRange().getValues()[r - 1].slice(0, H.length) : [pid, section, String(item), '', '', '', '', '', '', '', 'Active'];
   while (cur.length < H.length) cur.push('');
   var map = {date: 'Date', pinit: 'Pilot init', cinit: 'Company init', details: 'Details', source: 'Source'};
+  var oldDate = cur[H.indexOf('Date')]; oldDate = oldDate instanceof Date ? Utilities.formatDate(oldDate, 'America/Los_Angeles', 'MM/dd/yyyy') : String(oldDate || '');
+  if (section === 'training' && f.date && f.pinit === undefined && yearOf(oldDate) && yearOf(oldDate) !== yearOf(f.date)) cur[H.indexOf('Pilot init')] = '';
   Object.keys(map).forEach(function (k) { if (f[k] !== undefined) cur[H.indexOf(map[k])] = clean(f[k], 1000); });
   cur[H.indexOf('Updated')] = new Date(); cur[H.indexOf('Updated by')] = clean(by, 80); cur[H.indexOf('Status')] = 'Active';
   if (r) Q.getRange(r, 1, 1, H.length).setValues([cur]); else Q.appendRow(cur);
@@ -729,17 +733,20 @@ function qualOut(ss, pid) {
   all.forEach(function (q) {
     var o = {id: String(q['Item']), date: q['Date'] || '', pinit: q['Pilot init'] || '', cinit: q['Company init'] || '', source: q['Source'] || '', by: q['Updated by'] || ''};
     var det = {}; try { det = JSON.parse(String(q['Details'] || '{}')); } catch (e) { det = {value: String(q['Details'] || '')}; }
-    if (q['Section'] === 'info') { if (o.id !== 'certificate') info[o.id] = det.value || ''; }
+    if (q['Section'] === 'info') { if (!/^certificate/.test(o.id)) info[o.id] = det.value || ''; }
     else if (q['Section'] === 'training') training[o.id] = o;
     else if (q['Section'] === 'aircraft') aircraft.push(Object.assign(o, det));
     else if (q['Section'] === 'review') reviews.push(Object.assign(o, det));
   });
   var linked = {};
   trainCourses(ss).forEach(function (c) { if (c['Qual item'] && (c['Status'] || 'Active') === 'Active') (linked[String(c['Qual item'])] = linked[String(c['Qual item'])] || []).push(String(c['Course ID']) + ' ' + c['Title']); });
-  var comp = qualComplete(training), certRow = all.filter(function (q) { return q['Section'] === 'info' && String(q['Item']) === 'certificate'; })[0], cert = null;
-  if (certRow) { try { cert = JSON.parse(String(certRow['Details'])); } catch (e) {} }
-  return {ok: true, items: QUAL_ITEMS, info: info, training: training, aircraft: aircraft, reviews: reviews, linked: linked,
-          complete: comp.complete, waiting: comp.waiting, certificate: cert, sigReady: !!PropertiesService.getScriptProperties().getProperty('ADMIN_SIG_FILE')};
+  var yr = qualYear(), comp = qualComplete(training, yr), certs = [];
+  all.filter(function (q) { return q['Section'] === 'info' && /^certificate/.test(String(q['Item'])); }).forEach(function (q) {
+    try { var c = JSON.parse(String(q['Details'])); c.year = c.year || yearOf(c.date); certs.push(c); } catch (e) {} });
+  certs.sort(function (a, b) { return b.year - a.year; });
+  var cert = certs.filter(function (c) { return c.year === yr; })[0] || null;
+  return {ok: true, year: yr, items: QUAL_ITEMS, info: info, training: training, aircraft: aircraft, reviews: reviews, linked: linked,
+          complete: comp.complete, waiting: comp.waiting, certificate: cert, certificates: certs, sigReady: !!PropertiesService.getScriptProperties().getProperty('ADMIN_SIG_FILE')};
 }
 function qualAction(d) {
   var ss = pilotBook(), me = pilotAuth(d, ss), target = String(d.target || me.id), self = target === me.id;
@@ -776,7 +783,7 @@ function qualAction(d) {
       return {ok: true, name: props.getProperty('ADMIN_SIG_NAME') || '', png: fid ? 'data:image/png;base64,' + Utilities.base64Encode(DriveApp.getFileById(fid).getBlob().getBytes()) : ''};
     }
     if (d.action === 'qual.issue') {
-      if (!qualComplete(qualOut(ss, target).training).complete) return {ok: false, error: 'the record is not complete yet'};
+      if (!qualOut(ss, target).complete) return {ok: false, error: 'the record is not complete for ' + qualYear() + ' yet'};
       issueQualCert(ss, target); return qualOut(ss, target);
     }
     if (d.action === 'qual.signoff') {
@@ -806,12 +813,13 @@ function qualAction(d) {
 
 
 // ----- Qualification certificate: issued automatically when every OVH-402 item is complete
-function qualComplete(training) {
+function qualComplete(training, yr) {      // an item counts toward this year's certificate only if it was done this year (N/A carries over)
   var waiting = [];
   QUAL_ITEMS.forEach(function (it, i) {
     var t = training[String(i + 1)] || {};
     if (t.cinit === 'N/A') return;
     if (!t.date || !t.cinit) waiting.push({n: i + 1, need: 'company sign-off'});
+    else if (yearOf(t.date) !== yr) waiting.push({n: i + 1, need: 'renewal for ' + yr});
     else if (!t.pinit) waiting.push({n: i + 1, need: 'pilot initials'});
   });
   return {complete: waiting.length === 0, waiting: waiting};
@@ -826,31 +834,33 @@ function issueQualCert(ss, pid) {
   var pr = findRow(ss.getSheetByName('Pilots'), 'Pilot ID', pid), P = pr ? pr.obj : {}, name = P['Name'] || pid;
   var esc = function (t) { return String(t || '').replace(/[&<>"]/g, function (ch) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch]; }); };
   var now = new Date(), fmt = function (x) { return Utilities.formatDate(x, 'America/Los_Angeles', 'MMMM d, yyyy'); };
-  var certId = 'QC-' + Utilities.formatDate(now, 'America/Los_Angeles', 'yyyyMMdd') + '-' + String(pid).slice(0, 12);
+  var yr = qualYear(), certId = 'QC-' + yr + '-' + String(pid).slice(0, 12);
   var sig = 'data:image/png;base64,' + Utilities.base64Encode(DriveApp.getFileById(sigId).getBlob().getBytes()), logo = '';
   try { var lr = UrlFetchApp.fetch('https://overheaduas.com/cert-logo.jpg', {muteHttpExceptions: true}); if (lr.getResponseCode() === 200) logo = 'data:image/jpeg;base64,' + Utilities.base64Encode(lr.getBlob().getBytes()); } catch (e) {}
   var html = '<html><body style="margin:0;font-family:Helvetica,Arial,sans-serif;color:#0b1f33">' +
-    '<div style="border:10px solid #0b1f33;padding:6px"><div style="border:2px solid #c8102e;padding:64px 44px 48px;text-align:center">' +
+    '<div style="border:10px solid #0b1f33;padding:6px"><div style="border:2px solid #c8102e;padding:36px 44px 30px;text-align:center">' +
     (logo ? '<img src="' + logo + '" style="width:120px;height:120px">' : '') +
     '<div style="color:#c8102e;font-weight:bold;letter-spacing:4px;font-size:13px;margin-top:8px">OVERHEAD UAS</div>' +
-    '<h1 style="font-size:34px;margin:12px 0 4px;letter-spacing:1px">Certificate of Qualification</h1>' +
-    '<div style="color:#5b6b7a;font-size:13px;letter-spacing:2px">PILOT QUALIFICATION PROGRAM &nbsp;·&nbsp; OVH-402</div>' +
-    '<p style="color:#5b6b7a;margin:52px 0 10px;font-size:15px">This certifies that</p>' +
+    '<div style="font-size:46px;font-weight:bold;color:#c8102e;margin-top:14px;letter-spacing:3px">' + yr + '</div>' +
+    '<h1 style="font-size:34px;margin:2px 0 4px;letter-spacing:1px">Certificate of Qualification</h1>' +
+    '<div style="color:#5b6b7a;font-size:13px;letter-spacing:2px">ANNUAL PILOT QUALIFICATION &nbsp;·&nbsp; OVH-402</div>' +
+    '<p style="color:#5b6b7a;margin:40px 0 10px;font-size:15px">This certifies that</p>' +
     '<div style="font-size:32px;font-weight:bold;border-bottom:2px solid #9aa7b3;display:inline-block;padding:0 34px 6px">' + esc(name) + '</div>' +
     (P['Part 107 cert #'] ? '<div style="margin-top:8px;color:#5b6b7a;font-size:13px">FAA Part 107 Remote Pilot Certificate #' + esc(P['Part 107 cert #']) + '</div>' : '') +
     '<p style="margin:34px auto 0;max-width:520px;font-size:15px;line-height:1.6">has completed all requirements of the Overhead UAS Pilot Qualification Record, including company orientation, ' +
     'preflight and emergency procedures, mission forms, maintenance and aircraft care, client conduct, privacy, and insurance requirements, ' +
-    'and is qualified to fly missions for Overhead UAS.</p>' +
-    '<table style="width:100%;margin-top:80px;border-collapse:collapse"><tr>' +
+    'and is qualified and current to fly missions for Overhead UAS for the year ' + yr + '.</p>' +
+    '<div style="margin-top:14px;font-size:14px;font-weight:bold;color:#0b1f33">Valid through December 31, ' + yr + '</div>' +
+    '<table style="width:100%;margin-top:56px;border-collapse:collapse"><tr>' +
     '<td style="width:50%;text-align:center;vertical-align:bottom"><img src="' + sig + '" style="height:64px"><div style="border-top:1px solid #0b1f33;width:240px;margin:2px auto 0;padding-top:4px;font-size:13px"><b>' + esc(signer) + '</b><br><span style="color:#5b6b7a">Overhead UAS</span></div></td>' +
     '<td style="width:50%;text-align:center;vertical-align:bottom"><div style="font-size:17px;padding-bottom:6px">' + fmt(now) + '</div><div style="border-top:1px solid #0b1f33;width:240px;margin:0 auto;padding-top:4px;font-size:13px"><b>Date issued</b><br><span style="color:#5b6b7a">Certificate ' + esc(certId) + '</span></div></td>' +
     '</tr></table>' +
-    '<p style="margin-top:70px;font-size:10.5px;color:#5b6b7a">Overhead UAS · www.overheaduas.com · (760) 527-3267 · Issued through the Overhead UAS Pilot Portal</p>' +
+    '<p style="margin-top:44px;font-size:10.5px;color:#5b6b7a">Overhead UAS · www.overheaduas.com · (760) 527-3267 · Issued through the Overhead UAS Pilot Portal</p>' +
     '</div></div></body></html>';
   var pdf = Utilities.newBlob(html, 'text/html', 'qual.html').getAs('application/pdf');
-  pdf.setName(('Pilot_Qualification_Certificate_' + name + '_' + Utilities.formatDate(now, 'America/Los_Angeles', 'MM-dd-yyyy')).replace(/[^\w.\- ]+/g, '_') + '.pdf');
+  pdf.setName((yr + '_Pilot_Qualification_Certificate_' + name).replace(/[^\w.\- ]+/g, '_') + '.pdf');
   var file = pilotFolder(name, pid).createFile(pdf), mdy = Utilities.formatDate(now, 'America/Los_Angeles', 'MM/dd/yyyy');
-  ss.getSheetByName('Documents').appendRow([file.getId(), pid, 'Other certificate', 'Pilot Qualification Certificate (OVH-402)', '', '', '', file.getName(), now, clean(signer, 80), 'Active']);
-  qualSet(ss, pid, 'info', 'certificate', {details: JSON.stringify({date: mdy, file: file.getId(), id: certId})}, signer);
+  ss.getSheetByName('Documents').appendRow([file.getId(), pid, 'Other certificate', yr + ' Pilot Qualification Certificate (OVH-402)', '', '', '12/31/' + yr, file.getName(), now, clean(signer, 80), 'Active']);
+  qualSet(ss, pid, 'info', 'certificate-' + yr, {details: JSON.stringify({year: yr, date: mdy, file: file.getId(), id: certId})}, signer);
   return file.getId();
 }

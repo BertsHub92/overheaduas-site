@@ -92,6 +92,7 @@
   .mph button{position:absolute;top:3px;right:3px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:17px;line-height:1;cursor:pointer}
   .filepick-btn{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
   .qcert{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:14.5px;background:var(--bg)}
+  .qitem.stale{border-left:4px solid var(--warn,#c77700)} .qpast{margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
   .qcert.ok{border-color:var(--ok);background:rgba(27,122,64,.07)} .qcert.wait{color:var(--muted)}
   .sigshow{margin:8px 0} .sigimg{max-width:260px;max-height:90px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px}
   .qual h4{margin-top:16px} .qinfo{margin-top:8px}
@@ -485,7 +486,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 28; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 29; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1764,13 +1765,17 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     let Qr; try { Qr = await papi('qual.get', {target: id}); } catch (e) { box.innerHTML = `<h4>Qualification record (OVH-402)</h4><p class="err-msg">Couldn't load (${esc(e.message)}).</p>`; return; }
     const admin = ME && ME.role === 'admin';
     const render = Q => {
-      const done = Q.items.filter((_, i) => { const t = Q.training[String(i + 1)]; return t && t.date && t.cinit; }).length, I = Q.info || {};
+      const yr = Q.year || new Date().getFullYear(), yOf = d => +(String(d || '').split('/')[2] || 0);
+      const cur = t => t && (t.cinit === 'N/A' || (t.date && t.cinit && t.pinit && yOf(t.date) === yr));
+      const done = Q.items.filter((_, i) => cur(Q.training[String(i + 1)])).length, I = Q.info || {};
       const Q_ = Q;
-      box.innerHTML = `<div class="pcard-top"><h4>Qualification record (OVH-402)</h4><span class="badge ${done === Q.items.length ? 'green' : 'amber'}">${done} of ${Q.items.length} signed off</span></div>
+      box.innerHTML = `<div class="pcard-top"><h4>Qualification record (OVH-402)</h4><span class="badge ${done === Q.items.length ? 'green' : 'amber'}">${yr}: ${done} of ${Q.items.length} current</span></div>
         <p class="note">Items fill in automatically when ${self ? 'you pass' : 'the pilot passes'} a linked training course. ${admin ? 'You can also sign items off by hand, or mark ones that don\'t apply as N/A.' : 'Tap Initial to acknowledge an item.'}</p>
-        ${Q.certificate ? `<div class="qcert ok"><b>&#127941; Certificate of Qualification issued ${esc(Q.certificate.date)}</b><div class="fill-actions"><button class="btn btn-primary sm" data-x="qcview">View certificate</button>${admin ? '<button class="btn btn-ghost sm" data-x="qcissue">Re-issue</button>' : ''}</div></div>`
+        <p class="note">The qualification renews every calendar year: items count toward the ${yr} certificate only when they're completed in ${yr}.</p>
+        ${Q.certificate ? `<div class="qcert ok"><b>&#127941; ${yr} Certificate of Qualification issued ${esc(Q.certificate.date)}</b> <span class="note">Valid through Dec 31, ${yr}</span><div class="fill-actions"><button class="btn btn-primary sm" data-x="qcview">View certificate</button>${admin ? '<button class="btn btn-ghost sm" data-x="qcissue">Re-issue</button>' : ''}</div></div>`
           : Q.complete ? `<div class="qcert">${Q.sigReady ? `<b>Record complete.</b> ${admin ? '<button class="btn btn-primary sm" data-x="qcissue">Issue certificate</button>' : 'Your certificate will appear here shortly.'}` : `<b>Record complete.</b> ${admin ? 'Add your certificate signature on the <a href="#pilots">Current Pilots</a> page, then tap Issue certificate here.' : 'Your certificate will be issued by Overhead UAS.'}`}</div>`
-          : `<div class="qcert wait">When every item is complete, a <b>Certificate of Qualification</b> is issued automatically. Still needed: ${Q.waiting.map(w => `#${w.n} ${esc(w.need)}`).join(', ')}.</div>`}
+          : `<div class="qcert wait">When every item is complete for ${yr}, the <b>${yr} Certificate of Qualification</b> is issued automatically. Still needed: ${Q.waiting.map(w => `#${w.n} ${esc(w.need)}`).join(', ')}.</div>`}
+        ${(Q.certificates || []).filter(c => c.year !== yr).length ? `<div class="qpast"><span class="note">Past certificates:</span> ${(Q.certificates || []).filter(c => c.year !== yr).map(c => `<button class="btn btn-ghost sm" data-qcfile="${esc(c.file)}">${c.year}</button>`).join('')}</div>` : ''}
         <div class="grid2 qinfo">
           <div><label>Status</label>${admin ? `<select data-q="status">${['', 'Employee', 'Contractor', 'Owner'].map(x => `<option${x === (I.status || '') ? ' selected' : ''}>${x}</option>`).join('')}</select>` : `<div class="qval">${esc(I.status || '–')}</div>`}</div>
           <div><label>Start date</label>${admin ? `<input type="date" data-q="start" value="${esc(toIso(I.start))}">` : `<div class="qval">${esc(I.start || '–')}</div>`}</div>
@@ -1780,10 +1785,11 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         <div class="fill-actions"><button class="btn btn-ghost sm" data-x="qinfo">Save</button><span class="save-msg" data-m="qinfo"></span></div>
         <h4>Company training &amp; orientation</h4>
         <div class="qitems">${Q.items.map((it, i) => { const n = String(i + 1), t = Q.training[n] || {}, ok = t.date && t.cinit, links = (Q.linked || {})[n] || [];
-          return `<div class="qitem${ok ? ' ok' : ''}"><div class="qmain"><b>${i + 1}. ${esc(it)}</b>
-            <div class="note">${t.cinit === 'N/A' ? 'Not applicable' + (t.date ? ' · ' + esc(t.date) : '') : t.date ? `${esc(t.date)} · pilot ${esc(t.pinit || '–')} · company ${esc(t.cinit || '–')}${t.source ? ' · ' + esc(t.source) : ''}` : links.length ? 'Completes with training: ' + esc(links.join(', ')) : 'Not completed'}</div></div>
-            <div class="qbtns">${t.cinit === 'N/A' ? '<span class="badge grey">N/A</span>' : ok ? '<span class="badge green">&#10003;</span>' : ''}${self && t.date && !t.pinit ? `<button class="btn btn-ghost sm" data-ini="${n}">Initial</button>` : ''}
-            ${admin ? (ok ? `<button class="btn btn-ghost sm" data-clr="${n}">Clear</button>` : `<button class="btn btn-ghost sm" data-sign="${n}">Sign off</button><button class="btn btn-ghost sm" data-na="${n}">N/A</button>`) : ''}</div></div>`; }).join('')}</div>
+          const stale = t.date && t.cinit && t.cinit !== 'N/A' && yOf(t.date) !== yr;
+          return `<div class="qitem${cur(t) ? ' ok' : stale ? ' stale' : ''}"><div class="qmain"><b>${i + 1}. ${esc(it)}</b>
+            <div class="note">${stale ? `Last completed ${esc(t.date)} · <span class="warn-inline">needs renewal for ${yr}</span>` : t.cinit === 'N/A' ? 'Not applicable' + (t.date ? ' · ' + esc(t.date) : '') : t.date ? `${esc(t.date)} · pilot ${esc(t.pinit || '–')} · company ${esc(t.cinit || '–')}${t.source ? ' · ' + esc(t.source) : ''}` : links.length ? 'Completes with training: ' + esc(links.join(', ')) : 'Not completed'}</div></div>
+            <div class="qbtns">${t.cinit === 'N/A' ? '<span class="badge grey">N/A</span>' : cur(t) ? '<span class="badge green">&#10003;</span>' : ''}${self && t.date && !t.pinit ? `<button class="btn btn-ghost sm" data-ini="${n}">Initial</button>` : ''}
+            ${admin ? (ok && !stale ? `<button class="btn btn-ghost sm" data-clr="${n}">Clear</button>` : `<button class="btn btn-ghost sm" data-sign="${n}">Sign off</button><button class="btn btn-ghost sm" data-na="${n}">N/A</button>`) : ''}</div></div>`; }).join('')}</div>
         <h4>Aircraft authorized to fly</h4>
         <div class="qlist">${Q.aircraft.map(a => `<div class="qrow"><div><b>${esc(a.aircraft)}</b><div class="note">Checked out ${esc(a.date)} · approved by ${esc(a.cinit)}${a.notes ? ' · ' + esc(a.notes) : ''}</div></div>${admin ? `<button class="btn btn-ghost sm" data-rm="aircraft:${esc(a.id)}">Remove</button>` : ''}</div>`).join('') || '<p class="note">None yet.</p>'}</div>
         ${admin ? `<div class="qadd"><input type="text" data-n="aircraft" placeholder="Aircraft (nickname / model)"><input type="date" data-n="adate"><input type="text" data-n="anotes" placeholder="Notes"><button class="btn btn-ghost sm" data-x="addac">Add</button></div>` : ''}
@@ -1800,6 +1806,8 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
       box.querySelectorAll('[data-sign]').forEach(b => b.onclick = () => act('qual.signoff', {item: b.dataset.sign}, b));
       box.querySelectorAll('[data-na]').forEach(b => b.onclick = () => { if (confirm('Mark this item as not applicable for this pilot?')) act('qual.signoff', {item: b.dataset.na, na: true}, b); });
       if (q('[data-x=qcissue]')) q('[data-x=qcissue]').onclick = e => { if (!Q.certificate || confirm('Issue a new certificate dated today?')) act('qual.issue', {}, e.currentTarget); };
+      box.querySelectorAll('[data-qcfile]').forEach(b => b.onclick = async () => { b.disabled = true;
+        try { const r = await papi('doc.get', {docId: b.dataset.qcfile}); showFile(unb64(r.data), r.name || 'Certificate.pdf', r.mime); } catch (x) { alert('Could not open the certificate (' + x.message + ')'); } finally { b.disabled = false; } });
       if (q('[data-x=qcview]')) q('[data-x=qcview]').onclick = async e => { const b = e.currentTarget; b.disabled = true;
         try { const r = await papi('doc.get', {docId: Q.certificate.file}); showFile(unb64(r.data), r.name || 'Certificate.pdf', r.mime); } catch (x) { alert('Could not open the certificate (' + x.message + ')'); } finally { b.disabled = false; } };
       box.querySelectorAll('[data-clr]').forEach(b => b.onclick = () => { if (confirm('Clear this item?')) act('qual.signoff', {item: b.dataset.clr, clear: true}, b); });
