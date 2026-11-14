@@ -482,7 +482,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 26; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 27; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1938,6 +1938,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     const u = String(url || ''); let m;
     if ((m = u.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})/))) return `https://www.youtube-nocookie.com/embed/${m[1]}?rel=0`;
     if ((m = u.match(/vimeo\.com\/(?:video\/)?(\d+)/))) return `https://player.vimeo.com/video/${m[1]}`;
+    if ((m = u.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)([\w-]{20,})/))) return `https://drive.google.com/file/d/${m[1]}/preview`;
     return '';
   }
   async function loadTraining() {
@@ -2062,7 +2063,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         <div><label>Status</label><select data-c="status">${['Active', 'Archived'].map(x => `<option${x === c.status ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
         <div class="wide"><label>Description / instructions</label><textarea data-c="description" rows="3">${esc(c.description)}</textarea></div></div>
         <h4>Material</h4><div class="grid2">
-        <div class="wide"><label>Video or link (YouTube, Vimeo, or any web page)</label><input type="text" data-c="link" value="${esc(c.link)}" placeholder="https://www.youtube.com/watch?v=…"></div>
+        <div class="wide"><label>Video or link (YouTube, Google Drive, Vimeo, or any web page)</label><input type="text" data-c="link" value="${esc(c.link)}" placeholder="https://www.youtube.com/watch?v=…"></div>
         <div class="wide"><label>Slides (PDF)</label>${c.slides ? `<div class="note">Current: ${esc(c.slides.name)} · <label class="inline"><input type="checkbox" data-c="removeSlides"> remove</label></div>` : ''}
           <label class="filepick"><input type="file" accept="application/pdf,.pdf,.ppt,.pptx" data-c="slidesFile"><span>${c.slides ? 'Replace slides PDF' : 'Choose slides PDF'}</span></label>
           <p class="note">PowerPoint: File → Save As → PDF, then upload the PDF.</p></div></div>
