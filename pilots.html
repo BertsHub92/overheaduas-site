@@ -91,6 +91,9 @@
   .mph{position:relative;width:96px;height:96px;border-radius:8px;overflow:hidden;border:1px solid var(--line)} .mph img{width:100%;height:100%;object-fit:cover}
   .mph button{position:absolute;top:3px;right:3px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:17px;line-height:1;cursor:pointer}
   .filepick-btn{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+  .qcert{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:14.5px;background:var(--bg)}
+  .qcert.ok{border-color:var(--ok);background:rgba(27,122,64,.07)} .qcert.wait{color:var(--muted)}
+  .sigshow{margin:8px 0} .sigimg{max-width:260px;max-height:90px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px}
   .qual h4{margin-top:16px} .qinfo{margin-top:8px}
   .qual select,.qual input[type=text],.qual input[type=date]{width:100%;padding:9px 11px;font:14.5px Inter,sans-serif;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text)}
   .qval{padding:9px 0;font-size:15px}
@@ -482,7 +485,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 27; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 28; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1762,8 +1765,12 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     const admin = ME && ME.role === 'admin';
     const render = Q => {
       const done = Q.items.filter((_, i) => { const t = Q.training[String(i + 1)]; return t && t.date && t.cinit; }).length, I = Q.info || {};
+      const Q_ = Q;
       box.innerHTML = `<div class="pcard-top"><h4>Qualification record (OVH-402)</h4><span class="badge ${done === Q.items.length ? 'green' : 'amber'}">${done} of ${Q.items.length} signed off</span></div>
-        <p class="note">Items fill in automatically when ${self ? 'you pass' : 'the pilot passes'} a linked training course. ${admin ? 'You can also sign items off by hand.' : 'Tap Initial to acknowledge an item.'}</p>
+        <p class="note">Items fill in automatically when ${self ? 'you pass' : 'the pilot passes'} a linked training course. ${admin ? 'You can also sign items off by hand, or mark ones that don\'t apply as N/A.' : 'Tap Initial to acknowledge an item.'}</p>
+        ${Q.certificate ? `<div class="qcert ok"><b>&#127941; Certificate of Qualification issued ${esc(Q.certificate.date)}</b><div class="fill-actions"><button class="btn btn-primary sm" data-x="qcview">View certificate</button>${admin ? '<button class="btn btn-ghost sm" data-x="qcissue">Re-issue</button>' : ''}</div></div>`
+          : Q.complete ? `<div class="qcert">${Q.sigReady ? `<b>Record complete.</b> ${admin ? '<button class="btn btn-primary sm" data-x="qcissue">Issue certificate</button>' : 'Your certificate will appear here shortly.'}` : `<b>Record complete.</b> ${admin ? 'Add your certificate signature on the <a href="#pilots">Current Pilots</a> page, then tap Issue certificate here.' : 'Your certificate will be issued by Overhead UAS.'}`}</div>`
+          : `<div class="qcert wait">When every item is complete, a <b>Certificate of Qualification</b> is issued automatically. Still needed: ${Q.waiting.map(w => `#${w.n} ${esc(w.need)}`).join(', ')}.</div>`}
         <div class="grid2 qinfo">
           <div><label>Status</label>${admin ? `<select data-q="status">${['', 'Employee', 'Contractor', 'Owner'].map(x => `<option${x === (I.status || '') ? ' selected' : ''}>${x}</option>`).join('')}</select>` : `<div class="qval">${esc(I.status || '–')}</div>`}</div>
           <div><label>Start date</label>${admin ? `<input type="date" data-q="start" value="${esc(toIso(I.start))}">` : `<div class="qval">${esc(I.start || '–')}</div>`}</div>
@@ -1774,9 +1781,9 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         <h4>Company training &amp; orientation</h4>
         <div class="qitems">${Q.items.map((it, i) => { const n = String(i + 1), t = Q.training[n] || {}, ok = t.date && t.cinit, links = (Q.linked || {})[n] || [];
           return `<div class="qitem${ok ? ' ok' : ''}"><div class="qmain"><b>${i + 1}. ${esc(it)}</b>
-            <div class="note">${t.date ? `${esc(t.date)} · pilot ${esc(t.pinit || '–')} · company ${esc(t.cinit || '–')}${t.source ? ' · ' + esc(t.source) : ''}` : links.length ? 'Completes with training: ' + esc(links.join(', ')) : 'Not completed'}</div></div>
-            <div class="qbtns">${ok ? '<span class="badge green">&#10003;</span>' : ''}${self && t.date && !t.pinit ? `<button class="btn btn-ghost sm" data-ini="${n}">Initial</button>` : ''}
-            ${admin ? (ok ? `<button class="btn btn-ghost sm" data-clr="${n}">Clear</button>` : `<button class="btn btn-ghost sm" data-sign="${n}">Sign off</button>`) : ''}</div></div>`; }).join('')}</div>
+            <div class="note">${t.cinit === 'N/A' ? 'Not applicable' + (t.date ? ' · ' + esc(t.date) : '') : t.date ? `${esc(t.date)} · pilot ${esc(t.pinit || '–')} · company ${esc(t.cinit || '–')}${t.source ? ' · ' + esc(t.source) : ''}` : links.length ? 'Completes with training: ' + esc(links.join(', ')) : 'Not completed'}</div></div>
+            <div class="qbtns">${t.cinit === 'N/A' ? '<span class="badge grey">N/A</span>' : ok ? '<span class="badge green">&#10003;</span>' : ''}${self && t.date && !t.pinit ? `<button class="btn btn-ghost sm" data-ini="${n}">Initial</button>` : ''}
+            ${admin ? (ok ? `<button class="btn btn-ghost sm" data-clr="${n}">Clear</button>` : `<button class="btn btn-ghost sm" data-sign="${n}">Sign off</button><button class="btn btn-ghost sm" data-na="${n}">N/A</button>`) : ''}</div></div>`; }).join('')}</div>
         <h4>Aircraft authorized to fly</h4>
         <div class="qlist">${Q.aircraft.map(a => `<div class="qrow"><div><b>${esc(a.aircraft)}</b><div class="note">Checked out ${esc(a.date)} · approved by ${esc(a.cinit)}${a.notes ? ' · ' + esc(a.notes) : ''}</div></div>${admin ? `<button class="btn btn-ghost sm" data-rm="aircraft:${esc(a.id)}">Remove</button>` : ''}</div>`).join('') || '<p class="note">None yet.</p>'}</div>
         ${admin ? `<div class="qadd"><input type="text" data-n="aircraft" placeholder="Aircraft (nickname / model)"><input type="date" data-n="adate"><input type="text" data-n="anotes" placeholder="Notes"><button class="btn btn-ghost sm" data-x="addac">Add</button></div>` : ''}
@@ -1791,6 +1798,10 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
         act('qual.info', {info}, e.currentTarget).then(() => { const m = box.querySelector('[data-m=qinfo]'); if (m) { m.textContent = 'Saved ✓'; m.className = 'save-msg good'; } }); };
       box.querySelectorAll('[data-ini]').forEach(b => b.onclick = () => act('qual.initial', {item: b.dataset.ini}, b));
       box.querySelectorAll('[data-sign]').forEach(b => b.onclick = () => act('qual.signoff', {item: b.dataset.sign}, b));
+      box.querySelectorAll('[data-na]').forEach(b => b.onclick = () => { if (confirm('Mark this item as not applicable for this pilot?')) act('qual.signoff', {item: b.dataset.na, na: true}, b); });
+      if (q('[data-x=qcissue]')) q('[data-x=qcissue]').onclick = e => { if (!Q.certificate || confirm('Issue a new certificate dated today?')) act('qual.issue', {}, e.currentTarget); };
+      if (q('[data-x=qcview]')) q('[data-x=qcview]').onclick = async e => { const b = e.currentTarget; b.disabled = true;
+        try { const r = await papi('doc.get', {docId: Q.certificate.file}); showFile(unb64(r.data), r.name || 'Certificate.pdf', r.mime); } catch (x) { alert('Could not open the certificate (' + x.message + ')'); } finally { b.disabled = false; } };
       box.querySelectorAll('[data-clr]').forEach(b => b.onclick = () => { if (confirm('Clear this item?')) act('qual.signoff', {item: b.dataset.clr, clear: true}, b); });
       box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { const [section, rid] = b.dataset.rm.split(':'); if (confirm('Remove this entry?')) act('qual.remove', {section, id: rid}, b); });
       if (q('[data-x=addac]')) q('[data-x=addac]').onclick = e => { const a = q('[data-n=aircraft]').value.trim(); if (!a) return alert('Enter the aircraft');
@@ -1818,6 +1829,15 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     return doc.save();
   }
 
+  async function loadSigSetup(v) {
+    const box = v.querySelector('.sigset'); if (!box) return;
+    const show = r => { box.querySelector('.sigshow').innerHTML = r.png ? `<img src="${r.png}" alt="your signature" class="sigimg">` : '<p class="warn">No signature yet. Certificates can\'t be issued until you add one.</p>';
+      box.querySelector('[data-s=who]').textContent = r.name ? 'Signed as ' + r.name : ''; box.querySelector('[data-x=sigdraw]').textContent = r.png ? 'Redraw signature' : 'Draw signature'; };
+    try { show(await papi('qual.sig')); } catch (e) { box.querySelector('.sigshow').innerHTML = `<p class="err-msg">Couldn't load (${esc(e.message)}).</p>`; }
+    box.querySelector('[data-x=sigdraw]').onclick = () => signaturePad('Certificate signature', (PROFILE && PROFILE.name) || ME.name, async png => {
+      const m = box.querySelector('[data-m=sig]'); m.textContent = 'Saving…'; m.className = 'save-msg';
+      try { show(await papi('qual.sig', {png})); m.textContent = 'Saved ✓'; m.className = 'save-msg good'; } catch (e) { m.textContent = 'Could not save (' + e.message + ')'; m.className = 'save-msg bad'; } });
+  }
   async function openPilots() {
     const v = $('pilotsView');
     v.innerHTML = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Current Pilots</h2></div><p class="note">Loading…</p>`;
@@ -1828,12 +1848,17 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     const ps = r.pilots.slice().sort((a, b) => (a.status === 'Inactive') - (b.status === 'Inactive') || String(a.name).localeCompare(String(b.name)));
     v.innerHTML = `<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Current Pilots</h2></div>
       <p class="note">Pilots appear here after they sign in for the first time. Tap a pilot to open their folder.</p>
+      <div class="pcard sigset"><div class="pcard-top"><h4>Certificate signature</h4><span class="note" data-s="who"></span></div>
+        <p class="note">Your signature goes on every Certificate of Qualification, issued automatically when a pilot completes their OVH-402 record.</p>
+        <div class="sigshow"><span class="note">Loading…</span></div>
+        <div class="fill-actions"><button class="btn btn-ghost sm" data-x="sigdraw">Draw signature</button><span class="save-msg" data-m="sig"></span></div></div>
       <div class="plist">${ps.map(p => `<a class="prow${p.status === 'Inactive' ? ' inactive' : ''}" href="#pilot/${encodeURIComponent(p.id)}">
         <div class="prow-main"><b>${esc(p.name || p.id)}</b>${p.role === 'admin' ? ' <span class="badge grey">Admin</span>' : ''}${p.status === 'Inactive' ? ' <span class="badge grey">Inactive</span>' : ''}
           <div class="note">${p.cert ? 'Part 107 #' + esc(p.cert) : 'No cert # yet'} · ${p.docCount} document${p.docCount === 1 ? '' : 's'}${(m => m.length ? ' · <span class="warn-inline">missing ' + esc(m.join(' & ').toLowerCase()) + '</span>' : ' · <span class="ok-inline">&#10003; Part 107 docs on file</span>')(missingReq(p.types || (p.hasCert ? ['Part 107 certificate'] : [])))}</div></div>
         <div class="prow-due">${dueBadge(p)}</div><span class="tile-go">&rsaquo;</span></a>`).join('') || '<p class="note">No pilots yet.</p>'}
         ${waiting.map(x => `<div class="prow inactive"><div class="prow-main"><b>${esc(x.name)}</b>${x.role === 'admin' ? ' <span class="badge grey">Admin</span>' : ''}
           <div class="note">Has a sign-in code · <span class="warn-inline">hasn't signed in yet</span>. They'll be added here the first time they sign in.</div></div></div>`).join('')}</div>`;
+    loadSigSetup(v);
   }
 
 

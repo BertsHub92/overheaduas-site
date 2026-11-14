@@ -646,7 +646,8 @@ function trainAction(d) {
     pdf.setName(('Training_' + c['Title'] + '_' + fmt(now)).replace(/[^\w.\- ]+/g, '_') + '.pdf');
     var file = pilotFolder(pname, me.id).createFile(pdf);
     X.appendRow([String(c['Course ID']), clean(c['Title'], 120), me.id, clean(pname, 80), score, 'Yes', now, until || '', file.getId()]);
-    if (c['Qual item']) qualSet(ss, me.id, 'training', String(c['Qual item']), {date: fmt(now), pinit: initials(pname), cinit: 'Portal', source: String(c['Course ID']) + ' (' + score + '%)'}, 'Training');
+    if (c['Qual item']) { qualSet(ss, me.id, 'training', String(c['Qual item']), {date: fmt(now), pinit: initials(pname), cinit: 'Portal', source: String(c['Course ID']) + ' (' + score + '%)'}, 'Training');
+      try { maybeQualCert(ss, me.id); } catch (e) {} }
     ss.getSheetByName('Documents').appendRow([file.getId(), me.id, 'Other certificate', clean('Training: ' + c['Title'], 120), '', '', until ? fmt(until) : '', file.getName(), now, clean(pname, 80), 'Active']);
     return {ok: true, passed: true, score: score, pass: pass, certificate: file.getId(), until: until ? fmt(until) : ''};
   }
@@ -728,14 +729,17 @@ function qualOut(ss, pid) {
   all.forEach(function (q) {
     var o = {id: String(q['Item']), date: q['Date'] || '', pinit: q['Pilot init'] || '', cinit: q['Company init'] || '', source: q['Source'] || '', by: q['Updated by'] || ''};
     var det = {}; try { det = JSON.parse(String(q['Details'] || '{}')); } catch (e) { det = {value: String(q['Details'] || '')}; }
-    if (q['Section'] === 'info') info[o.id] = det.value || '';
+    if (q['Section'] === 'info') { if (o.id !== 'certificate') info[o.id] = det.value || ''; }
     else if (q['Section'] === 'training') training[o.id] = o;
     else if (q['Section'] === 'aircraft') aircraft.push(Object.assign(o, det));
     else if (q['Section'] === 'review') reviews.push(Object.assign(o, det));
   });
   var linked = {};
   trainCourses(ss).forEach(function (c) { if (c['Qual item'] && (c['Status'] || 'Active') === 'Active') (linked[String(c['Qual item'])] = linked[String(c['Qual item'])] || []).push(String(c['Course ID']) + ' ' + c['Title']); });
-  return {ok: true, items: QUAL_ITEMS, info: info, training: training, aircraft: aircraft, reviews: reviews, linked: linked};
+  var comp = qualComplete(training), certRow = all.filter(function (q) { return q['Section'] === 'info' && String(q['Item']) === 'certificate'; })[0], cert = null;
+  if (certRow) { try { cert = JSON.parse(String(certRow['Details'])); } catch (e) {} }
+  return {ok: true, items: QUAL_ITEMS, info: info, training: training, aircraft: aircraft, reviews: reviews, linked: linked,
+          complete: comp.complete, waiting: comp.waiting, certificate: cert, sigReady: !!PropertiesService.getScriptProperties().getProperty('ADMIN_SIG_FILE')};
 }
 function qualAction(d) {
   var ss = pilotBook(), me = pilotAuth(d, ss), target = String(d.target || me.id), self = target === me.id;
@@ -751,6 +755,7 @@ function qualAction(d) {
       var n = String(d.item); if (!(+n >= 1 && +n <= QUAL_ITEMS.length)) return {ok: false, error: 'bad item'};
       var r0 = qualRow(ss.getSheetByName('Qualifications'), target, 'training', n), cur0 = r0 ? ss.getSheetByName('Qualifications').getDataRange().getValues()[r0 - 1][3] : '';
       qualSet(ss, target, 'training', n, {pinit: initials(myName), date: cur0 ? undefined : today}, myName);
+      maybeQualCert(ss, target);
       return qualOut(ss, target);
     }
     if (d.action === 'qual.info') {               // admins edit everything; a pilot may update only their emergency contact
@@ -759,10 +764,27 @@ function qualAction(d) {
       return qualOut(ss, target);
     }
     if (!me.admin) return {ok: false, error: 'admins only'};
+    if (d.action === 'qual.sig') {               // the admin's signature used on qualification certificates
+      var props = PropertiesService.getScriptProperties();
+      if (d.png) {
+        if (!/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(String(d.png)) || String(d.png).length > 400000) return {ok: false, error: 'bad signature image'};
+        var old = props.getProperty('ADMIN_SIG_FILE'); if (old) { try { DriveApp.getFileById(old).setTrashed(true); } catch (e) {} }
+        var sf = folder(folder(null, ROOT_FOLDER), 'Settings').createFile(Utilities.newBlob(Utilities.base64Decode(String(d.png).split(',')[1]), 'image/png', 'certificate-signature.png'));
+        props.setProperty('ADMIN_SIG_FILE', sf.getId()); props.setProperty('ADMIN_SIG_NAME', String(myName).slice(0, 80));
+      }
+      var fid = props.getProperty('ADMIN_SIG_FILE');
+      return {ok: true, name: props.getProperty('ADMIN_SIG_NAME') || '', png: fid ? 'data:image/png;base64,' + Utilities.base64Encode(DriveApp.getFileById(fid).getBlob().getBytes()) : ''};
+    }
+    if (d.action === 'qual.issue') {
+      if (!qualComplete(qualOut(ss, target).training).complete) return {ok: false, error: 'the record is not complete yet'};
+      issueQualCert(ss, target); return qualOut(ss, target);
+    }
     if (d.action === 'qual.signoff') {
       var m = String(d.item); if (!(+m >= 1 && +m <= QUAL_ITEMS.length)) return {ok: false, error: 'bad item'};
       if (d.clear) { var rc = qualRow(ss.getSheetByName('Qualifications'), target, 'training', m); if (rc) ss.getSheetByName('Qualifications').getRange(rc, PTABS.Qualifications.indexOf('Status') + 1).setValue('Deleted'); return qualOut(ss, target); }
-      qualSet(ss, target, 'training', m, {date: d.date || today, cinit: initials(myName), source: 'Signed off by ' + myName}, myName);
+      if (d.na) qualSet(ss, target, 'training', m, {date: d.date || today, cinit: 'N/A', pinit: 'N/A', source: 'Not applicable (' + myName + ')'}, myName);
+      else qualSet(ss, target, 'training', m, {date: d.date || today, cinit: initials(myName), source: 'Signed off by ' + myName}, myName);
+      maybeQualCert(ss, target);
       return qualOut(ss, target);
     }
     if (d.action === 'qual.add') {                // aircraft authorization or annual review
@@ -780,4 +802,55 @@ function qualAction(d) {
     }
   } finally { lock.releaseLock(); }
   return {ok: false, error: 'unknown action'};
+}
+
+
+// ----- Qualification certificate: issued automatically when every OVH-402 item is complete
+function qualComplete(training) {
+  var waiting = [];
+  QUAL_ITEMS.forEach(function (it, i) {
+    var t = training[String(i + 1)] || {};
+    if (t.cinit === 'N/A') return;
+    if (!t.date || !t.cinit) waiting.push({n: i + 1, need: 'company sign-off'});
+    else if (!t.pinit) waiting.push({n: i + 1, need: 'pilot initials'});
+  });
+  return {complete: waiting.length === 0, waiting: waiting};
+}
+function maybeQualCert(ss, pid) {
+  var q = qualOut(ss, pid);
+  if (q.complete && !q.certificate && q.sigReady) issueQualCert(ss, pid);
+}
+function issueQualCert(ss, pid) {
+  var props = PropertiesService.getScriptProperties(), sigId = props.getProperty('ADMIN_SIG_FILE'), signer = props.getProperty('ADMIN_SIG_NAME') || 'Overhead UAS';
+  if (!sigId) throw new Error('add your certificate signature first (Current Pilots page)');
+  var pr = findRow(ss.getSheetByName('Pilots'), 'Pilot ID', pid), P = pr ? pr.obj : {}, name = P['Name'] || pid;
+  var esc = function (t) { return String(t || '').replace(/[&<>"]/g, function (ch) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch]; }); };
+  var now = new Date(), fmt = function (x) { return Utilities.formatDate(x, 'America/Los_Angeles', 'MMMM d, yyyy'); };
+  var certId = 'QC-' + Utilities.formatDate(now, 'America/Los_Angeles', 'yyyyMMdd') + '-' + String(pid).slice(0, 12);
+  var sig = 'data:image/png;base64,' + Utilities.base64Encode(DriveApp.getFileById(sigId).getBlob().getBytes()), logo = '';
+  try { var lr = UrlFetchApp.fetch('https://overheaduas.com/cert-logo.jpg', {muteHttpExceptions: true}); if (lr.getResponseCode() === 200) logo = 'data:image/jpeg;base64,' + Utilities.base64Encode(lr.getBlob().getBytes()); } catch (e) {}
+  var html = '<html><body style="margin:0;font-family:Helvetica,Arial,sans-serif;color:#0b1f33">' +
+    '<div style="border:10px solid #0b1f33;padding:6px"><div style="border:2px solid #c8102e;padding:64px 44px 48px;text-align:center">' +
+    (logo ? '<img src="' + logo + '" style="width:120px;height:120px">' : '') +
+    '<div style="color:#c8102e;font-weight:bold;letter-spacing:4px;font-size:13px;margin-top:8px">OVERHEAD UAS</div>' +
+    '<h1 style="font-size:34px;margin:12px 0 4px;letter-spacing:1px">Certificate of Qualification</h1>' +
+    '<div style="color:#5b6b7a;font-size:13px;letter-spacing:2px">PILOT QUALIFICATION PROGRAM &nbsp;·&nbsp; OVH-402</div>' +
+    '<p style="color:#5b6b7a;margin:52px 0 10px;font-size:15px">This certifies that</p>' +
+    '<div style="font-size:32px;font-weight:bold;border-bottom:2px solid #9aa7b3;display:inline-block;padding:0 34px 6px">' + esc(name) + '</div>' +
+    (P['Part 107 cert #'] ? '<div style="margin-top:8px;color:#5b6b7a;font-size:13px">FAA Part 107 Remote Pilot Certificate #' + esc(P['Part 107 cert #']) + '</div>' : '') +
+    '<p style="margin:34px auto 0;max-width:520px;font-size:15px;line-height:1.6">has completed all requirements of the Overhead UAS Pilot Qualification Record, including company orientation, ' +
+    'preflight and emergency procedures, mission forms, maintenance and aircraft care, client conduct, privacy, and insurance requirements, ' +
+    'and is qualified to fly missions for Overhead UAS.</p>' +
+    '<table style="width:100%;margin-top:80px;border-collapse:collapse"><tr>' +
+    '<td style="width:50%;text-align:center;vertical-align:bottom"><img src="' + sig + '" style="height:64px"><div style="border-top:1px solid #0b1f33;width:240px;margin:2px auto 0;padding-top:4px;font-size:13px"><b>' + esc(signer) + '</b><br><span style="color:#5b6b7a">Overhead UAS</span></div></td>' +
+    '<td style="width:50%;text-align:center;vertical-align:bottom"><div style="font-size:17px;padding-bottom:6px">' + fmt(now) + '</div><div style="border-top:1px solid #0b1f33;width:240px;margin:0 auto;padding-top:4px;font-size:13px"><b>Date issued</b><br><span style="color:#5b6b7a">Certificate ' + esc(certId) + '</span></div></td>' +
+    '</tr></table>' +
+    '<p style="margin-top:70px;font-size:10.5px;color:#5b6b7a">Overhead UAS · www.overheaduas.com · (760) 527-3267 · Issued through the Overhead UAS Pilot Portal</p>' +
+    '</div></div></body></html>';
+  var pdf = Utilities.newBlob(html, 'text/html', 'qual.html').getAs('application/pdf');
+  pdf.setName(('Pilot_Qualification_Certificate_' + name + '_' + Utilities.formatDate(now, 'America/Los_Angeles', 'MM-dd-yyyy')).replace(/[^\w.\- ]+/g, '_') + '.pdf');
+  var file = pilotFolder(name, pid).createFile(pdf), mdy = Utilities.formatDate(now, 'America/Los_Angeles', 'MM/dd/yyyy');
+  ss.getSheetByName('Documents').appendRow([file.getId(), pid, 'Other certificate', 'Pilot Qualification Certificate (OVH-402)', '', '', '', file.getName(), now, clean(signer, 80), 'Active']);
+  qualSet(ss, pid, 'info', 'certificate', {details: JSON.stringify({date: mdy, file: file.getId(), id: certId})}, signer);
+  return file.getId();
 }
