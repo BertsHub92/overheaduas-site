@@ -83,6 +83,14 @@
   .remember{margin-top:12px;color:var(--muted);font-size:13.5px}
   @media (max-width:600px){.grid2{grid-template-columns:1fr}.checks{columns:1}}
   .req{color:var(--err)}
+  .ac-info{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px;background:var(--bg)}
+  .ac-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px} .ac-grid span{display:block;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em} .ac-grid b{font-size:14.5px}
+  .hint-last{display:block;color:var(--muted);font-size:12.5px;margin-top:3px}
+  .bat-help{margin:4px 0 10px;font-size:14px} .bat-help summary{cursor:pointer;color:var(--blue);font-weight:600} .bat-help ul{margin:8px 0;padding-left:20px;line-height:1.5} .bat-help li{margin:4px 0}
+  .mphotos{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+  .mph{position:relative;width:96px;height:96px;border-radius:8px;overflow:hidden;border:1px solid var(--line)} .mph img{width:100%;height:100%;object-fit:cover}
+  .mph button{position:absolute;top:3px;right:3px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:17px;line-height:1;cursor:pointer}
+  .filepick-btn{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
   .qual h4{margin-top:16px} .qinfo{margin-top:8px}
   .qual select,.qual input[type=text],.qual input[type=date]{width:100%;padding:9px 11px;font:14.5px Inter,sans-serif;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text)}
   .qval{padding:9px 0;font-size:15px}
@@ -471,7 +479,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 23; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 24; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1143,6 +1151,7 @@
         <div class="wide"><label>Aircraft <span class="req">*</span></label><select data-k="aircraft">
           <option value="">Select aircraft…</option>${list.map((a, i) => `<option value="${i}">${esc(acLabel(a))}</option>`).join('')}${myDrones().length ? `<optgroup label="My registered drones">${myDrones().map((d, i) => `<option value="my:${i}">${esc(d.aircraft || d.title || 'Drone')}${d.reg ? '  (' + esc(d.reg) + ')' : ''}</option>`).join('')}</optgroup>` : ''}<option value="other">Other aircraft…</option></select></div>
       </div>
+      <div class="ac-info" hidden></div>
       <div class="grid2 other-ac" hidden>
         <div><label>Nickname</label><input type="text" data-o="nickname"></div>
         <div><label>Make / model <span class="req">*</span></label><input type="text" data-o="model" placeholder="e.g. Autel EVO II"></div>
@@ -1156,8 +1165,8 @@
       <div class="grid2" style="margin-top:12px">
         <div><label>Date <span class="req">*</span></label><input type="date" data-k="date"></div>
         <div><label>Pilot / technician <span class="req">*</span></label><input type="text" data-k="pilot"></div>
-        <div><label>Total aircraft flight time (hrs)</label><input type="number" step="0.1" min="0" inputmode="decimal" data-k="hours"></div>
-        <div><label>Firmware version</label><input type="text" data-k="firmware" placeholder="Aircraft / controller"></div>
+        <div><label>Total aircraft flight time (hrs)</label><input type="number" step="0.1" min="0" inputmode="decimal" data-k="hours"><small class="hint-last" data-h="hours"></small></div>
+        <div><label>Firmware version</label><input type="text" data-k="firmware" placeholder="Aircraft / controller"><small class="hint-last" data-h="firmware"></small></div>
       </div>
       <div class="m-insp">
         <h4>Inspection checklist</h4>
@@ -1169,11 +1178,21 @@
         <button class="btn btn-ghost" type="button" data-x="allpass" style="margin-top:10px">Mark all remaining as Pass</button>
       </div>
       <h4>Batteries</h4>
-      <p class="note" style="margin-top:-4px">Add each battery checked. Swollen or damaged batteries must be removed from service.</p>
+      <p class="note" style="margin-top:-4px">Add each battery checked. Cycles and health % are optional; the condition is what matters most. Swollen or damaged batteries must be removed from service.</p>
+      <details class="bat-help"><summary>How do I find cycles and health %?</summary>
+        <ul><li><b>DJI drones:</b> power on the aircraft, open the camera view in <b>DJI Fly</b>, and tap the battery % at the top to open the battery info page. Most models show the <b>cycle count</b> and cell voltages there, and some also show battery health or "battery life".</li>
+        <li>If your model doesn't show it, connect the aircraft or battery to <b>DJI Assistant 2</b> on a computer.</li>
+        <li><b>Other brands:</b> look for a battery page in the flight app.</li>
+        <li><b>Can't find it?</b> Leave the numbers blank and just rate the condition. Look for swelling or puffiness, cracks or dents, damaged or burnt contacts, a battery that gets unusually hot, or one that drains much faster than the others.</li>
+        <li><b>When to retire:</b> any swelling or damage, right away. Also consider retiring a battery that is near the maker's rated cycle count, or whose health has dropped noticeably (around 80% or lower).</li></ul></details>
       <div class="bats"></div>
       <button class="btn btn-ghost" type="button" data-x="addbat">+ Add battery</button>
       <div class="m-work"><h4>Work performed / parts replaced</h4>
         <textarea data-k="work" rows="3" placeholder="e.g. Replaced 4 propellers, recalibrated compass, updated firmware"></textarea></div>
+      <h4>Photos</h4>
+      <p class="note" style="margin-top:-4px">Optional. Add photos of any damage, broken parts, or the repair. They're saved with this entry and included in the PDF record.</p>
+      <div class="mphotos"></div>
+      <label class="btn btn-ghost filepick-btn"><input type="file" accept="image/*" multiple data-x="photo" hidden>&#128247; Add photos</label>
       <h4>Aircraft status</h4>
       <div class="radios" data-group="status"><span class="radio-label">After this entry <span class="req">*</span></span>
         <label><input type="radio" name="status" value="AIRWORTHY">Airworthy</label><label><input type="radio" name="status" value="GROUNDED">Grounded</label></div>
@@ -1203,6 +1222,21 @@
     q('[data-k=aircraft]').onchange = e => {
       const v = e.target.value, mine = v.startsWith('my:');
       q('.other-ac').hidden = !(v === 'other' || mine); e.target.classList.remove('invalid');
+      const a = /^\d+$/.test(v) ? list[+v] : null, info = q('.ac-info');
+      q('[data-h=hours]').textContent = ''; q('[data-h=firmware]').textContent = '';
+      qa('.bat[data-auto]').forEach(r => { if (!r.querySelector('[data-b=cycles]').value && !r.querySelector('[data-b=health]').value && !r.querySelector('[data-b=notes]').value) r.remove(); });
+      if (!a) { info.hidden = true; info.innerHTML = ''; }
+      else {
+        const bats = a.batteries || [];
+        info.hidden = false;
+        info.innerHTML = `<div class="ac-grid"><div><span>Serial #</span><b>${esc(a.serial || '–')}</b></div><div><span>FAA reg #</span><b>${esc(a.reg || '–')}</b></div>
+          <div><span>Last firmware</span><b>${esc(a.firmware || '–')}</b></div><div><span>Flight time</span><b>${a.hours !== '' && a.hours != null ? esc(a.hours) + ' hrs' : '–'}</b></div>
+          <div><span>Batteries on record</span><b>${bats.length}</b></div><div><span>Last entry</span><b>${a.last ? esc(a.last.date) + ' · ' + esc(a.last.type) : 'None yet'}</b>${a.last && a.last.result === 'GROUNDED' ? ' <span class="badge red">GROUNDED</span>' : ''}</div></div>`;
+        if (a.firmware && !q('[data-k=firmware]').value) { q('[data-k=firmware]').value = a.firmware; q('[data-h=firmware]').textContent = 'Filled from the last entry. Change it if you updated the firmware.'; }
+        if (a.hours !== '' && a.hours != null) q('[data-h=hours]').textContent = 'Last recorded: ' + a.hours + ' hrs';
+        const have = new Set(qa('.bat [data-b=id]').map(i => i.value.trim()));
+        bats.forEach(b => { if (!have.has(b.id)) addBat(b); });
+      }
       if (mine) { const d = myDrones()[+v.slice(3)]; q('[data-o=model]').value = d.aircraft || d.title || ''; q('[data-o=reg]').value = d.reg || ''; q('[data-o=nickname]').value = ''; q('[data-o=save]').checked = true; }
     };
     qa('input[name=etype]').forEach(r => r.onchange = sync);
@@ -1211,18 +1245,30 @@
       ci.querySelector('.ci-note').hidden = !fail; ci.classList.toggle('fail', fail); ci.classList.remove('invalid'); sync();
     }));
     q('[data-x=allpass]').onclick = () => { qa('.ci').forEach(ci => { if (!ci.querySelector('input:checked')) { ci.querySelector('input[value=Pass]').checked = true; ci.classList.remove('invalid'); } }); sync(); };
-    const addBat = () => {
+    const addBat = known => {
       const row = document.createElement('div'); row.className = 'bat';
       row.innerHTML = `<input type="text" data-b="id" placeholder="Battery ID / #">
-        <input type="number" data-b="cycles" placeholder="Cycles" min="0" inputmode="numeric">
-        <input type="number" data-b="health" placeholder="Health %" min="0" max="100" inputmode="numeric">
+        <input type="number" data-b="cycles" placeholder="Cycles (optional)" min="0" inputmode="numeric">
+        <input type="number" data-b="health" placeholder="Health % (optional)" min="0" max="100" inputmode="numeric">
         <select data-b="condition"><option>Good</option><option>Worn – monitor</option><option>Swollen / damaged – retire</option></select>
         <input type="text" data-b="notes" placeholder="Notes">
         <button type="button" class="bat-x" aria-label="Remove battery">&times;</button>`;
       row.querySelector('.bat-x').onclick = () => row.remove();
+      if (known && known.id) { row.querySelector('[data-b=id]').value = known.id; row.dataset.auto = '1';
+        if (known.cycles !== '' && known.cycles != null) row.querySelector('[data-b=cycles]').placeholder = 'Last: ' + known.cycles;
+        if (known.health !== '' && known.health != null) row.querySelector('[data-b=health]').placeholder = 'Last: ' + known.health + '%';
+        if (/worn/i.test(known.condition || '')) row.querySelector('[data-b=condition]').value = known.condition; }
       q('.bats').appendChild(row);
     };
-    q('[data-x=addbat]').onclick = addBat;
+    q('[data-x=addbat]').onclick = () => addBat();
+    // photos: shrink on the phone before upload
+    box._photos = [];
+    const drawPhotos = () => { q('.mphotos').innerHTML = box._photos.map((ph, i) => `<div class="mph"><img src="${ph.url}" alt="photo ${i + 1}"><button type="button" data-rmph="${i}" aria-label="Remove photo">&times;</button></div>`).join('');
+      q('.mphotos').querySelectorAll('[data-rmph]').forEach(b => b.onclick = () => { box._photos.splice(+b.dataset.rmph, 1); drawPhotos(); }); };
+    q('[data-x=photo]').onchange = async e => {
+      for (const file of [...e.target.files]) { if (box._photos.length >= 8) { alert('Up to 8 photos per entry.'); break; }
+        try { box._photos.push(await shrinkPhoto(file)); } catch (x) { alert('Could not read that photo.'); } }
+      e.target.value = ''; drawPhotos(); };
     q('[data-sign=pilot]').onclick = () => signaturePad('Pilot / technician', q('[data-k=pilot]').value.trim(), png => {
       box._sigs.pilot = {png, when: nowStamp(), name: q('[data-k=pilot]').value.trim()};
       const el = q('[data-sig=pilot]'); el.classList.remove('invalid'); el.classList.add('signed');
@@ -1255,7 +1301,7 @@
     const retired = batteries.filter(b => /retire/i.test(b.condition));
     const alerts = [...failed.map(c => `${c.item}: FAIL${c.note ? ' (' + c.note + ')' : ''}`), ...retired.map(b => `Battery ${b.id || '?'}: ${b.condition}${b.notes ? ' (' + b.notes + ')' : ''}`)];
     if (status === 'GROUNDED' && !failed.length) alerts.unshift('Aircraft marked GROUNDED by pilot');
-    return {aircraft, type, date: usDate(v('date')), pilot: v('pilot'), hours: v('hours'), firmware: v('firmware'), work: v('work'), notes: v('notes'),
+    return {photos: (box._photos || []).length, aircraft, type, date: usDate(v('date')), pilot: v('pilot'), hours: v('hours'), firmware: v('firmware'), work: v('work'), notes: v('notes'),
       checklist, batteries, result: status, failed: failed.map(c => c.item), alerts, alert: alerts.length > 0};
   }
 
@@ -1282,7 +1328,17 @@
   }
 
   // Draw the signed maintenance record as a PDF (Letter) with pdf-lib.
-  async function maintPdf(e, sig, docId) {
+  async function shrinkPhoto(file, max = 1600) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
+      const sc = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * sc); c.height = Math.round(img.naturalHeight * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const blob = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.82)), bytes = new Uint8Array(await blob.arrayBuffer());
+      return {bytes, url: URL.createObjectURL(blob), w: c.width, h: c.height};
+    } finally { URL.revokeObjectURL(url); }
+  }
+  async function maintPdf(e, sig, docId, photos = []) {
     const {PDFDocument, StandardFonts, rgb} = await loadPdfLib();
     const doc = await PDFDocument.create();
     doc.setTitle('OVH-204 Maintenance & Repair Log entry'); doc.setAuthor('Overhead UAS');
@@ -1360,6 +1416,14 @@
     y -= 56;
     const rec = `Electronically signed via the Overhead UAS Pilot Portal (overheaduas.com) by ${sig?.name || e.pilot} on ${sig?.when}. Document ID: ${docId}`;
     wrap(rec, 7, FW).forEach(l => { need(9); text(l, M, y - 7, 7, font, GREY); y -= 9; });
+    if (photos.length) {
+      newPage(); section(`PHOTOS (${photos.length})`);
+      for (let i = 0; i < photos.length; i++) {
+        const img = await doc.embedJpg(photos[i].bytes), maxH = (H - 2 * M - 80) / 2, sc = Math.min(FW / img.width, maxH / img.height), w = img.width * sc, h = img.height * sc;
+        need(h + 20); page.drawImage(img, {x: M + (FW - w) / 2, y: y - h, width: w, height: h});
+        text(`Photo ${i + 1}`, M, y - h - 11, 8, font, GREY); y -= h + 20;
+      }
+    }
     footer();
     return doc.save();
   }
@@ -1372,12 +1436,12 @@
     try {
       store.set('pilot_name', box.querySelector('[data-k=remember]').checked ? e.pilot : '');
       const docId = 'OUAS-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
-      const bytes = await maintPdf(e, box._sigs.pilot, docId);
+      const bytes = await maintPdf(e, box._sigs.pilot, docId, box._photos || []);
       const acName = (e.aircraft.nickname || e.aircraft.model || 'Aircraft').replace(/[^A-Za-z0-9]+/g, '_');
       const name = `OVH-204_${acName}_${e.type.split(' ')[0]}_${e.date.replace(/\//g, '-')}.pdf`;
       const url = URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'}));
       let r = null, err = '';
-      try { r = await api(f.app, 'maint.submit', {entry: e, pdf: toB64(bytes), filename: name, docId}); }
+      try { r = await api(f.app, 'maint.submit', {entry: e, pdf: toB64(bytes), filename: name, docId, photos: (box._photos || []).map(ph => ({data: toB64(ph.bytes)}))}); }
       catch (x) { err = x.message; }
       box.querySelector('.fill-actions').hidden = true;
       done.hidden = false;
@@ -1389,7 +1453,7 @@
       done.querySelector('[data-d=new]').onclick = () => { if (e.aircraft.isNew && e.aircraft.save) aircraftCache = null; openMaint(f, box.parentElement); };
       if (!r) done.querySelector('[data-d=retry]').onclick = () => { done.hidden = true; box.querySelector('.fill-actions').hidden = false; submitMaint(f, box, list, btn); };
       if (r) box.querySelectorAll('input, textarea, select, [data-sign], [data-x]').forEach(i => i.disabled = true);
-      if (e.aircraft.isNew && e.aircraft.save) aircraftCache = null;
+      if (r || (e.aircraft.isNew && e.aircraft.save)) aircraftCache = null;   // reload so the next entry shows the latest firmware / batteries
       done.scrollIntoView({behavior: 'smooth', block: 'center'});
     } catch (x) {
       alert('Sorry, the record could not be created. Please try again.');
@@ -1459,7 +1523,7 @@
 <div><b>FAA registration #</b>${cell(ac['FAA registration #'] || a.reg)}</div><div><b>Period</b>${esc(usDate(from) || 'start')} – ${esc(usDate(to) || 'today')}</div></div>
 <h2>INSPECTIONS &amp; REPAIRS (${entries.length})</h2>
 ${entries.length ? `<table><tr><th>Date</th><th>Entry type</th><th>Pilot / tech</th><th>Result</th><th>Failed items</th><th>Flight hrs</th><th>Firmware</th><th>Work performed / parts</th><th>Notes</th><th>Batteries</th><th>Document ID</th></tr>
-${entries.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Entry type'])}</td><td>${cell(x['Pilot'])}</td><td class="${x['Result'] === 'GROUNDED' ? 'g' : 'ok'}">${cell(x['Result'])}</td><td>${cell(x['Failed items'])}</td><td>${cell(x['Total flight time (hrs)'])}</td><td>${cell(x['Firmware'])}</td><td>${cell(x['Work performed / parts replaced'])}</td><td>${cell(x['Notes'])}</td><td>${cell(x['Batteries checked'])}</td><td>${cell(x['Document ID'])}</td></tr>`).join('')}</table>` : '<div class="empty">No entries in this period.</div>'}
+${entries.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Entry type'])}</td><td>${cell(x['Pilot'])}</td><td class="${x['Result'] === 'GROUNDED' ? 'g' : 'ok'}">${cell(x['Result'])}</td><td>${cell(x['Failed items'])}</td><td>${cell(x['Total flight time (hrs)'])}</td><td>${cell(x['Firmware'])}</td><td>${cell(x['Work performed / parts replaced'])}</td><td>${cell(x['Notes'])}${x['Photos'] ? `<br><i>${String(x['Photos']).split(',').length} photo(s) in the signed record</i>` : ''}</td><td>${cell(x['Batteries checked'])}</td><td>${cell(x['Document ID'])}</td></tr>`).join('')}</table>` : '<div class="empty">No entries in this period.</div>'}
 <h2>BATTERY CHECKS (${bats.length})</h2>
 ${bats.length ? `<table><tr><th>Date</th><th>Battery ID</th><th>Cycles</th><th>Health %</th><th>Condition</th><th>Notes</th><th>Pilot / tech</th><th>Document ID</th></tr>
 ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID'])}</td><td>${cell(x['Cycle count'])}</td><td>${cell(x['Health %'])}</td><td class="${/retire/i.test(x['Condition']) ? 'g' : ''}">${cell(x['Condition'])}</td><td>${cell(x['Notes'])}</td><td>${cell(x['Pilot'])}</td><td>${cell(x['Document ID'])}</td></tr>`).join('')}</table>` : '<div class="empty">No battery checks in this period.</div>'}

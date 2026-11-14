@@ -121,7 +121,7 @@ var MAINT_BOOK = 'Overhead UAS Maintenance Log';
 var TABS = {
   Aircraft: ['Aircraft ID', 'Nickname', 'Make / model', 'Serial #', 'FAA registration #', 'Status', 'Added', 'Added by'],
   'Log Entries': ['Logged', 'Entry date', 'Aircraft ID', 'Aircraft', 'Entry type', 'Pilot', 'Result', 'Failed items', 'Total flight time (hrs)',
-                  'Firmware', 'Work performed / parts replaced', 'Notes', 'Batteries checked', 'Document ID', 'PDF'],
+                  'Firmware', 'Work performed / parts replaced', 'Notes', 'Batteries checked', 'Document ID', 'PDF', 'Photos'],
   'Battery Checks': ['Logged', 'Entry date', 'Aircraft ID', 'Aircraft', 'Battery ID', 'Cycle count', 'Health %', 'Condition', 'Notes', 'Pilot', 'Document ID']
 };
 
@@ -160,8 +160,20 @@ function rows(sh) {
 function clean(x, n) { return String(x == null ? '' : x).replace(/^[=+\-@]/, "'$&").slice(0, n || 500); }
 
 function aircraftList(ss) {
+  var ent = rows(ss.getSheetByName('Log Entries')), bat = rows(ss.getSheetByName('Battery Checks'));
+  var when = function (r) { var p = String(r['Entry date']).split('/'); return p.length === 3 ? new Date(+p[2], +p[0] - 1, +p[1]).getTime() : 0; };
   return rows(ss.getSheetByName('Aircraft')).filter(function (a) { return a['Status'] !== 'Retired'; }).map(function (a) {
-    return {id: a['Aircraft ID'], nickname: a['Nickname'], model: a['Make / model'], serial: a['Serial #'], reg: a['FAA registration #']};
+    var id = String(a['Aircraft ID']), mine = ent.filter(function (r) { return String(r['Aircraft ID']) === id; });
+    mine.sort(function (x, y) { return when(y) - when(x) || (new Date(y['Logged']) - new Date(x['Logged'])); });
+    var last = mine[0] || null, fw = mine.filter(function (r) { return r['Firmware']; })[0], hrs = mine.filter(function (r) { return r['Total flight time (hrs)'] !== ''; })[0];
+    var insp = mine.filter(function (r) { return /inspection/i.test(r['Entry type']); })[0];
+    var bmap = {};   // newest check for each battery ID on this aircraft
+    bat.filter(function (b) { return String(b['Aircraft ID']) === id && b['Battery ID']; }).sort(function (x, y) { return when(x) - when(y); })
+       .forEach(function (b) { bmap[String(b['Battery ID'])] = {id: String(b['Battery ID']), cycles: b['Cycle count'], health: b['Health %'], condition: b['Condition'], date: b['Entry date']}; });
+    var bats = Object.keys(bmap).map(function (k) { return bmap[k]; }).filter(function (b) { return !/retire/i.test(b.condition); });
+    return {id: id, nickname: a['Nickname'], model: a['Make / model'], serial: a['Serial #'], reg: a['FAA registration #'],
+            last: last ? {date: last['Entry date'], type: last['Entry type'], result: last['Result']} : null, inspected: insp ? insp['Entry date'] : '',
+            firmware: fw ? fw['Firmware'] : '', hours: hrs ? hrs['Total flight time (hrs)'] : '', batteries: bats};
   });
 }
 
@@ -201,10 +213,16 @@ function handleAction(d) {
         var f = folder(folder(folder(null, ROOT_FOLDER), 'Maintenance'), acId.replace(/[\/\\]/g, '-')).createFile(blob);
         url = f.getUrl();
       }
-      var now = new Date(), bats = e.batteries || [];
+      var now = new Date(), bats = e.batteries || [], photoIds = [], photoBlobs = [];
+      (d.photos || []).slice(0, 8).forEach(function (ph, k) {
+        if (!ph || !ph.data) return;
+        var by = Utilities.base64Decode(ph.data); if (by.length > 8 * 1024 * 1024) return;
+        var pb = Utilities.newBlob(by, 'image/jpeg', (acId + '_' + String(e.date || '').replace(/\//g, '-') + '_photo' + (k + 1) + '.jpg').replace(/[^\w.\- ]+/g, '_'));
+        photoIds.push(folder(folder(folder(folder(null, ROOT_FOLDER), 'Maintenance'), acId.replace(/[\/\\]/g, '-')), 'Photos').createFile(pb).getId()); photoBlobs.push(pb);
+      });
       ss.getSheetByName('Log Entries').appendRow([now, clean(e.date, 20), clean(acId, 40), clean(acName, 120), clean(e.type, 40), clean(e.pilot, 60),
         clean(e.result, 40), clean((e.failed || []).join('; '), 1000), clean(e.hours, 20), clean(e.firmware, 60), clean(e.work, 2000),
-        clean(e.notes, 2000), bats.length, clean(d.docId, 40), url]);
+        clean(e.notes, 2000), bats.length, clean(d.docId, 40), url, photoIds.join(',')]);
       var bsh = ss.getSheetByName('Battery Checks');
       bats.forEach(function (b) {
         bsh.appendRow([now, clean(e.date, 20), clean(acId, 40), clean(acName, 120), clean(b.id, 40), clean(b.cycles, 10), clean(b.health, 10), clean(b.condition, 40), clean(b.notes, 500), clean(e.pilot, 60), clean(d.docId, 40)]);
@@ -216,11 +234,18 @@ function handleAction(d) {
           ['', 'Notes: ' + (e.notes || '-'), '', 'Record: ' + (url || '(no PDF)'), 'Document ID: ' + (d.docId || '-')]).join('\n');
         var opts = {name: 'Overhead UAS Maintenance Log'};
         if (d.pdf) opts.attachments = [Utilities.newBlob(Utilities.base64Decode(d.pdf), 'application/pdf', String(d.filename || 'Maintenance.pdf'))];
+        if (photoBlobs.length) opts.attachments = (opts.attachments || []).concat(photoBlobs.slice(0, 4));
         GmailApp.sendEmail(OFFICE_EMAIL, (e.result === 'GROUNDED' ? 'GROUNDED: ' : 'Maintenance alert: ') + acName, body, opts);
         emailed = true;
       }
-      return {ok: true, emailed: emailed, aircraftId: acId};
+      return {ok: true, emailed: emailed, aircraftId: acId, photos: photoIds.length};
     } finally { lock.releaseLock(); }
+  }
+  if (d.action === 'maint.photo') {
+    var fid = String(d.fileId || ''), listed = fid && rows(ss.getSheetByName('Log Entries')).some(function (r) { return String(r['Photos'] || '').split(',').indexOf(fid) >= 0; });
+    if (!listed) return {ok: false, error: 'photo not found'};
+    var pbl = DriveApp.getFileById(fid).getBlob();
+    return {ok: true, mime: pbl.getContentType(), data: Utilities.base64Encode(pbl.getBytes())};
   }
   if (d.action === 'maint.history') {
     var id = String(d.aircraftId || ''), from = d.from ? new Date(d.from + 'T00:00:00') : null, to = d.to ? new Date(d.to + 'T23:59:59') : null;
