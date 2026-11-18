@@ -167,6 +167,10 @@
   .insp-due{display:flex;flex-direction:column;gap:2px;margin:8px 0 4px;padding:8px 12px;border-radius:10px;background:#fff1b8;border:1px solid #e9c23f;color:#5c4200}
   .insp-due span{font-weight:700;font-size:14.5px} .insp-due small{font-size:12.5px;opacity:.85}
   .fleet-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .authbox{flex-basis:100%;margin-top:8px;border-radius:10px;padding:10px 12px;border:1px solid var(--err);background:rgba(196,35,48,.06);font-size:14px}
+  .authbox.ok{border-color:var(--ok);background:rgba(27,122,64,.07)} .authbox .note{margin:4px 0 6px}
+  .auth-row{margin-top:6px} .auth-row select,.auth-row input{width:100%;padding:9px 10px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);font:14.5px Inter,sans-serif}
+  .seg.locked label{opacity:.55;cursor:not-allowed}
   .viewer-size{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:var(--blue-soft);font-size:13px;color:var(--blue)}
   .viewer-size button{border:1px solid var(--blue);background:transparent;color:var(--blue);border-radius:999px;padding:5px 11px;font:600 12.5px Inter,sans-serif;cursor:pointer}
   .viewer-size button.on{background:var(--blue);color:#fff}
@@ -503,7 +507,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 35; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 36; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');

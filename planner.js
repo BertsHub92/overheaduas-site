@@ -72,7 +72,7 @@
   function mount(root, X) {
     if (root._planner) { root._planner.map.invalidateSize(); if (root._planner.sync) root._planner.sync(); return; }
     const esc = X.esc;
-    const S = {lat: null, lon: null, address: '', tz: undefined, brief: null, manual: {}, aircraft: null};
+    const S = {lat: null, lon: null, address: '', tz: undefined, brief: null, manual: {}, aircraft: null, auth: {}};
     root.innerHTML = `
       <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div>
       <div id="plBanner"></div>
@@ -198,7 +198,7 @@
       : Promise.reject(new Error('not connected'));
     async function briefing() {
       const lat = S.lat, lon = S.lon;
-      S.brief = {loading: true}; S.manual = Object.fromEntries(Object.entries(S.manual).filter(([k]) => ['f5', 'f6', 'f7', 'f8', 'f9'].includes(k)));
+      S.brief = {loading: true}; S.auth = {}; S.manual = Object.fromEntries(Object.entries(S.manual).filter(([k]) => ['f5', 'f6', 'f7', 'f8', 'f9'].includes(k)));
       $('plNotesCard').hidden = false; drawBrief(); drawRisk();
       const B = {lat, lon};
       const wx = nws(lat, lon);
@@ -316,11 +316,21 @@
       const Z = summarize(), A = autoRatings(Z), R = {};
       FACTORS.forEach(f => { const m = S.manual[f.g], a = A[f.g]; R[f.g] = m ? {lv: m, why: a ? (m !== a.lv ? 'Changed by pilot · ' : '') + a.why : '', manual: true} : a ? Object.assign({auto: true}, a) : {lv: 0, why: ''}; });
       if (!R.f9.why && S.aircraft && S.aircraft.why) R.f9.why = S.aircraft.why;
+      const air = A.f4 || {lv: 0}, au = S.auth || {}, tfrIn = (Z.tfrs || []).some(t => t.inside);
+      if (air.lv >= 2) {      // controlled airspace or TFR: the pilot can't rate it down; only an FAA authorization lowers it to Medium
+        let block = '';
+        if (tfrIn) block = 'Inside a TFR: NO-GO';
+        else if (!au.ok || !String(au.num || '').trim()) block = 'FAA authorization required before flying';
+        else if (au.type === 'LAANC' && (Z.ceiling === null || Z.ceiling === 0)) block = 'LAANC is not available here; FAA DroneZone authorization needed';
+        else if (au.type === 'LAANC' && Z.above) block = 'Planned altitude is above the LAANC grid ceiling';
+        R.f4 = block ? {lv: 3, why: air.why + ' · ' + block, locked: true, auto: true}
+                     : {lv: 2, why: `Authorized: ${au.type} #${String(au.num).trim()} · ${air.why}`, locked: true, authorized: true};
+      }
       const rated = FACTORS.filter(f => R[f.g].lv);
       const score = rated.reduce((s, f) => s + R[f.g].lv, 0), hard = FACTORS.some(f => f.hard && R[f.g].lv === 3);
       const complete = rated.length === FACTORS.length;
       const decision = !complete ? '' : (hard || score >= 23) ? 'NO-GO' : score >= 16 ? 'CAUTION' : 'GO';
-      return {R, score, rated: rated.length, complete, decision, hard, highs: FACTORS.filter(f => R[f.g].lv === 3).map(f => f.name)};
+      return {R, Z, score, rated: rated.length, complete, decision, hard, highs: FACTORS.filter(f => R[f.g].lv === 3).map(f => f.name)};
     }
 
     // ---- briefing UI
@@ -390,9 +400,24 @@
       box.innerHTML = `<div class="pcard"><h4>Risk assessment (OVH-205)</h4>${ban}
         <div class="rlist">${FACTORS.map(f => { const r = K.R[f.g], opts = f.opts || ['Low', 'Medium', 'High'];
           return `<div class="rrow"><div class="rname"><b>${esc(f.name)}</b>${r.auto ? ' <span class="badge grey">auto</span>' : ''}${f.aircraft && S.aircraft ? ' <span class="note">' + esc(S.aircraft.label) + '</span>' : ''}<div class="note">${esc(r.why || (f.aircraft && !S.aircraft ? 'Pick the aircraft above, or rate it' : ''))}</div></div>
-            <div class="seg">${[1, 2, 3].map(l => `<label><input type="radio" name="rk_${f.g}" data-g="${f.g}" value="${l}"${r.lv === l ? ' checked' : ''}><span class="${l === 3 ? 'hi' : ''}">${esc(f.opts ? opts[l - 1] : LV[l])}</span></label>`).join('')}</div></div>`; }).join('')}</div>
+            <div class="seg${r.locked ? ' locked' : ''}">${[1, 2, 3].map(l => `<label><input type="radio" name="rk_${f.g}" data-g="${f.g}" value="${l}"${r.lv === l ? ' checked' : ''}${r.locked ? ' disabled' : ''}><span class="${l === 3 ? 'hi' : ''}">${esc(f.opts ? opts[l - 1] : LV[l])}</span></label>`).join('')}</div>
+            ${f.g === 'f4' && r.locked ? authBox(K) : ''}</div>`; }).join('')}</div>
         <p class="note">GO 10–15 · CAUTION 16–22 · NO-GO 23+. Any HIGH in wind, visibility, precipitation, airspace, or pilot fitness is a NO-GO. Weather and airspace are rated automatically; tap to change any rating.</p></div>`;
       box.querySelectorAll('input[data-g]').forEach(i => i.onchange = () => { S.manual[i.dataset.g] = +i.value; drawRisk(); });
+      const ok = box.querySelector('#plAuthOk'), ty = box.querySelector('#plAuthType'), nu = box.querySelector('#plAuthNum');
+      const save = () => { S.auth = {ok: ok.checked, type: ty.value, num: nu.value.trim()}; drawRisk(); };
+      if (ok) { ok.onchange = save; ty.onchange = save; nu.onchange = save; nu.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); nu.blur(); } }; }
+    }
+    function authBox(K) {
+      const Z = K.Z, au = S.auth || {}, r = K.R.f4;
+      if ((Z.tfrs || []).some(t => t.inside)) return `<div class="authbox no"><b>&#9940; Inside a TFR.</b> Flights are not allowed without specific FAA approval for the TFR. This is a NO-GO.</div>`;
+      const needDZ = Z.ceiling === null || Z.ceiling === 0 || Z.above;
+      return `<div class="authbox ${r.authorized ? 'ok' : 'no'}">
+        <b>${r.authorized ? '&#10003; FAA authorization entered' : '&#9940; Controlled airspace: FAA authorization required'}</b>
+        <p class="note">${needDZ ? 'LAANC can\'t approve this flight (0 ft grid, no grid, or above the grid ceiling). You need an <b>FAA DroneZone airspace authorization</b> (or a waiver) before flying.' : 'Get <b>LAANC</b> approval in an FAA-approved app (e.g. Aloft) or an FAA DroneZone authorization before flying.'} Without it, airspace stays HIGH and the plan is a NO-GO.</p>
+        <label class="remember"><input type="checkbox" id="plAuthOk"${au.ok ? ' checked' : ''}>We have FAA authorization for this flight</label>
+        <div class="grid2 auth-row"><select id="plAuthType">${['LAANC', 'FAA DroneZone airspace authorization', 'Part 107 waiver / COA'].map(x => `<option${au.type === x ? ' selected' : ''}>${x}</option>`).join('')}</select>
+          <input type="text" id="plAuthNum" value="${esc(au.num || '')}" placeholder="Authorization / reference #"></div></div>`;
     }
 
     function drawOverlays(lat, lon) {
@@ -439,7 +464,9 @@
         ...(B.apt || []).slice(0, 2).map(f => { const a = f.attributes, g = f.geometry || {}; return (String(pick(a, /^TYPE_CODE$/i)).toUpperCase() === 'HP' ? 'Heliport ' : 'Airport ') + pick(a, /^IDENT$/i) + (g.y !== undefined ? ' ' + distMi(S.lat, S.lon, g.y, g.x).toFixed(1) + ' mi ' + bearing(S.lat, S.lon, g.y, g.x) : ''); })].filter(Boolean).join('; ');
       const short = Z.airspace.replace(/\s*\(.*\)\s*/, '').replace(' (uncontrolled) at 400 ft AGL and below', '').replace(/ \(uncontrolled\) below.*/, '').replace('Could not load airspace data', 'Verify airspace');
       const lshort = Z.ceiling !== null ? (Z.ceiling ? `LAANC ${Z.ceiling} ft AGL` : 'LAANC 0 ft: DroneZone auth') : /Class G/.test(Z.airspace) ? 'no LAANC needed' : 'no LAANC grid';
-      return {Z, wx, hz, metar: av.metar ? av.metar.raw : '', air: Z.airspace + (Z.laanc ? ' · ' + Z.laanc : ''), airShort: short + ' · ' + lshort + (Z.above ? ' · plan ABOVE ceiling' : '') + (Z.tfrs.some(t => t.inside) ? ' · IN TFR' : '')};
+      const K0 = ratings(), authTxt = K0.R.f4 && K0.R.f4.authorized ? `${S.auth.type === 'LAANC' ? 'LAANC' : S.auth.type.startsWith('FAA') ? 'DroneZone auth' : 'Waiver'} #${S.auth.num}` : '';
+      return {Z, wx, hz, authTxt, metar: av.metar ? av.metar.raw : '', air: Z.airspace + (Z.laanc ? ' · ' + Z.laanc : '') + (authTxt ? ' · AUTHORIZED: ' + authTxt : ''),
+        airShort: short + ' · ' + (authTxt || lshort) + (Z.above ? ' · plan ABOVE ceiling' : '') + (Z.tfrs.some(t => t.inside) ? ' · IN TFR' : '')};
     }
     const pilotName = () => (X.profile && X.profile.name) || (X.me && X.me.name) || '';
     const fileTag = () => ($('plMission').value || S.address.split(',')[0] || 'Plan').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
@@ -509,7 +536,8 @@
       if (img) { try { const im = await doc.embedJpg(img), h = FW * im.height / im.width; need(h + 8); page.drawImage(im, {x: M, y: y - h, width: FW, height: h});
         page.drawRectangle({x: M, y: y - h, width: FW, height: h, borderColor: LINE, borderWidth: 0.6}); y -= h + 4; TX('Imagery: Esri, Maxar, Earthstar Geographics.', M, y - 8, 6.8, font, GREY); y -= 12; } catch (e) {} }
       section('AIRSPACE & RESTRICTIONS');
-      row('Airspace', B.gridErr && B.clsErr ? 'Unavailable - verify in B4UFLY / LAANC app' : Z.airspace, Z.airspaceRisk === 3 ? RED : null);
+      { const K1 = ratings(), au = S.auth || {};
+        row('Airspace', B.gridErr && B.clsErr ? 'Unavailable - verify in B4UFLY / LAANC app' : Z.airspace + (K1.R.f4 && K1.R.f4.authorized ? ` (AUTHORIZED: ${au.type} #${au.num})` : K1.R.f4 && K1.R.f4.locked ? ' (NO FAA AUTHORIZATION ENTERED)' : ''), K1.R.f4 && K1.R.f4.lv === 3 ? RED : null); }
       row('LAANC', Z.laanc);
       row('TFRs', B.tfrErr ? 'Check unavailable - verify at tfr.faa.gov' : !(B.tfr || []).length ? 'None within 30 mi' : (B.tfr || []).slice(0, 6).map(t => (t.inside ? 'INSIDE: ' : t.miles.toFixed(1) + ' mi: ') + t.title).join('\n'), (B.tfr || []).some(t => t.inside) ? RED : null);
       const apts = (B.apt || []).map(f => { const a = f.attributes, g = f.geometry || {}; const d = g.y !== undefined ? distMi(S.lat, S.lon, g.y, g.x) : null;
