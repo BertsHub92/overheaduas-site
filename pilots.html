@@ -507,7 +507,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 36; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 37; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -2475,7 +2475,8 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     K = null; manifest = null; ME = null; PROFILE = null; MYDOCS = []; $('formList').innerHTML = '';
     $('whoName').innerHTML = '&#10003; Signed in'; $('whoCert').innerHTML = ''; $('whoMission').innerHTML = '';
     if ($('missionsView')) $('missionsView').innerHTML = '';
-    if ($('trainingView')) $('trainingView').innerHTML = ''; TRAIN = null; if ($('offlineNote')) $('offlineNote').hidden = true;
+    if ($('trainingView')) $('trainingView').innerHTML = ''; TRAIN = null;
+    { const pv = $('planView'); if (pv && pv._planner) { try { pv._planner.map.remove(); } catch (e) {} pv._planner = null; } if (pv) pv.innerHTML = ''; }   // next pilot starts a fresh plan if ($('offlineNote')) $('offlineNote').hidden = true;
     NEWS = null; if ($('newsView')) $('newsView').innerHTML = ''; if ($('annBanner')) { $('annBanner').innerHTML = ''; $('annBanner').hidden = true; }
     { const t = document.querySelector('.tour'); if (t) t.remove(); }
     $('files').hidden = true; $('lock').hidden = false; document.querySelector('.lead').hidden = false; $('code').focus();

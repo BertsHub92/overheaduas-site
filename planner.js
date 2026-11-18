@@ -198,7 +198,7 @@
       : Promise.reject(new Error('not connected'));
     async function briefing() {
       const lat = S.lat, lon = S.lon;
-      S.brief = {loading: true}; S.auth = {}; S.manual = Object.fromEntries(Object.entries(S.manual).filter(([k]) => ['f5', 'f6', 'f7', 'f8', 'f9'].includes(k)));
+      S.brief = {loading: true}; S.auth = {}; S.manual = {};   // every new location starts with a blank risk assessment
       $('plNotesCard').hidden = false; drawBrief(); drawRisk();
       const B = {lat, lon};
       const wx = nws(lat, lon);
