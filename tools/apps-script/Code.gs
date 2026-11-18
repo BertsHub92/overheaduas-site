@@ -707,7 +707,7 @@ function annAction(d) {
 // ===================== Pilot Qualification Record (OVH-402) =====================
 var QUAL_ITEMS = ['OVH-101 Preflight Checklist reviewed', 'OVH-103 Emergency Procedures reviewed', 'OVH-201 / 202 / 203 / 205 forms reviewed',
   'OVH-204 Maintenance log & aircraft care', 'Pilot Portal access & pilot code issued', 'Client agreement & conduct (OVH-301)',
-  'Privacy & surveillance footage handling (OVH-206)', 'SKYHOOK long-line checkout (if applicable, OVH-102)', 'Insurance requirements reviewed'];
+  'Privacy & monitoring footage handling (OVH-206)', 'SKYHOOK long-line checkout (if applicable, OVH-102)', 'Insurance requirements reviewed'];
 function qualYear() { return +Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy'); }
 function yearOf(d) { var p = String(d || '').split('/'); return p.length === 3 ? +p[2] : 0; }
 function initials(n) { return String(n || '').split(/\s+/).filter(Boolean).map(function (w) { return w.charAt(0).toUpperCase(); }).join('').slice(0, 4); }

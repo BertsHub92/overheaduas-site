@@ -495,7 +495,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 32; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 33; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1812,7 +1812,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
   // ---------- Pilot Qualification Record (OVH-402), kept online, printable ----------
   const QUAL_ITEMS = ['OVH-101 Preflight Checklist reviewed', 'OVH-103 Emergency Procedures reviewed', 'OVH-201 / 202 / 203 / 205 forms reviewed',
     'OVH-204 Maintenance log & aircraft care', 'Pilot Portal access & pilot code issued', 'Client agreement & conduct (OVH-301)',
-    'Privacy & surveillance footage handling (OVH-206)', 'SKYHOOK long-line checkout (if applicable, OVH-102)', 'Insurance requirements reviewed'];
+    'Privacy & monitoring footage handling (OVH-206)', 'SKYHOOK long-line checkout (if applicable, OVH-102)', 'Insurance requirements reviewed'];
   async function drawQual(v, id, self, P) {
     let box = v.querySelector('.qual'); if (!box) { box = document.createElement('div'); box.className = 'pcard qual'; v.appendChild(box); }
     box.innerHTML = '<h4>Qualification record (OVH-402)</h4><p class="note">Loading…</p>';
