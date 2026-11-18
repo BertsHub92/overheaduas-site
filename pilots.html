@@ -159,6 +159,11 @@
   .outbox details{margin-top:8px;font-size:14px} .outbox summary{cursor:pointer;color:var(--muted)}
   .ob-item{display:flex;gap:8px;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding:8px 0;font-size:14px;overflow-wrap:anywhere}
   .offline-note{text-align:center;margin-top:14px}
+  .fleet{display:grid;gap:10px;margin:10px 0 6px}
+  .fleet-card{border:1px solid var(--line);border-left:5px solid var(--ok);border-radius:12px;padding:12px 14px;background:var(--card)}
+  .fleet-card.down{border-left-color:var(--err);background:linear-gradient(0deg,rgba(196,35,48,.05),rgba(196,35,48,.05)),var(--card)}
+  .fleet-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+  .fleet-top b{font-size:16px} .fleet-line{margin:6px 0 2px;font-size:14.5px;overflow-wrap:anywhere}
   .viewer-size{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:var(--blue-soft);font-size:13px;color:var(--blue)}
   .viewer-size button{border:1px solid var(--blue);background:transparent;color:var(--blue);border-radius:999px;padding:5px 11px;font:600 12.5px Inter,sans-serif;cursor:pointer}
   .viewer-size button.on{background:var(--blue);color:#fff}
@@ -495,7 +500,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 33; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 34; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1199,7 +1204,7 @@
   function renderApp(f, el) {
     const acts = el.querySelector('.actions');
     acts.innerHTML = `<button class="btn btn-primary" data-m="log">Log entry</button>
-      <button class="btn btn-ghost" data-m="aircraft">Aircraft</button>
+      <button class="btn btn-ghost" data-m="aircraft">Fleet status</button>
       <button class="btn btn-ghost" data-m="history">Print history</button>`;
     acts.querySelector('[data-m=log]').onclick = () => openMaint(f, el);
     acts.querySelector('[data-m=aircraft]').onclick = () => openAircraft(f, el);
@@ -1210,11 +1215,19 @@
   // ----- Aircraft list + add
   async function openAircraft(f, card) {
     const app = f.app, box = panel(card, 'm-aircraft');
-    box.innerHTML = '<h4>Aircraft</h4><p class="note">Loading…</p>';
+    box.innerHTML = '<h4>Fleet status</h4><p class="note">Loading…</p>';
+    const ageDays = d => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(d || ''); return m ? Math.floor((Date.now() - new Date(+m[3], m[1] - 1, +m[2])) / 864e5) : null; };
     const draw = list => {
-      box.innerHTML = `<h4>Aircraft</h4>
-        ${list.length ? `<div class="mtable-wrap"><table class="mtable"><tr><th>Nickname</th><th>Make / model</th><th>Serial #</th><th>FAA reg #</th></tr>
-          ${list.map(a => `<tr><td>${esc(a.nickname || '')}</td><td>${esc(a.model || '')}</td><td>${esc(a.serial || '')}</td><td>${esc(a.reg || '')}</td></tr>`).join('')}</table></div>`
+      const grounded = list.filter(a => a.last && a.last.result === 'GROUNDED'), ok = list.length - grounded.length;
+      box.innerHTML = `<div class="pcard-top"><h4>Fleet status</h4><span class="note">${ok} in service · ${grounded.length} grounded</span></div>
+        <p class="note">Status comes from each aircraft's latest log entry. Need an aircraft? Pick one that's in service, or call Overhead UAS at <a href="tel:+17605273267">(760) 527-3267</a>.</p>
+        ${list.length ? `<div class="fleet">${list.slice().sort((x, y) => ((x.last && x.last.result === 'GROUNDED') - (y.last && y.last.result === 'GROUNDED')) || String(x.nickname || x.model).localeCompare(String(y.nickname || y.model))).map(a => {
+          const g = a.last && a.last.result === 'GROUNDED', days = ageDays(a.inspected), due = !g && (days === null || days > 35);
+          return `<div class="fleet-card ${g ? 'down' : 'up'}"><div class="fleet-top"><div><b>${esc(a.nickname || a.model || a.id)}</b>${a.nickname && a.model ? `<span class="note"> · ${esc(a.model)}</span>` : ''}</div>
+              <span class="badge ${g ? 'red' : 'green'}">${g ? '&#9940; Grounded' : '&#10003; Airworthy'}</span></div>
+            <div class="fleet-line">${g ? `<b>Out of service:</b> ${esc(a.last.reason || 'Grounded by pilot')}` : 'In service'}${due ? ` · <span class="warn-inline">${days === null ? 'No monthly inspection on record' : 'Monthly inspection overdue (' + esc(a.inspected) + ')'}</span>` : ''}</div>
+            <div class="note">${a.last ? `Last entry ${esc(a.last.date)} · ${esc(a.last.type)}${a.last.pilot ? ' · ' + esc(a.last.pilot) : ''}` : 'No log entries yet'}${a.inspected && !due ? ` · inspected ${esc(a.inspected)}` : ''}</div>
+            <div class="note">${[a.serial && 'SN ' + esc(a.serial), a.reg && 'Reg ' + esc(a.reg), (a.batteries || []).length && a.batteries.length + (a.batteries.length === 1 ? ' battery' : ' batteries')].filter(Boolean).join(' · ')}</div></div>`; }).join('')}</div>`
           : '<p class="note">No aircraft yet. Add your first one below.</p>'}
         <h4>Add an aircraft</h4>
         <div class="grid2">
@@ -1237,7 +1250,7 @@
       };
     };
     try { draw(await getAircraft(app, true)); }
-    catch (x) { box.innerHTML = `<h4>Aircraft</h4><p class="err-msg">Could not load the aircraft list (${esc(x.message)}). Check your connection.</p>`; }
+    catch (x) { box.innerHTML = `<h4>Fleet status</h4><p class="err-msg">Could not load the aircraft list (${esc(x.message)}). Check your connection.</p>`; }
   }
 
   // ----- Log a maintenance entry
@@ -1405,7 +1418,7 @@
     const alerts = [...failed.map(c => `${c.item}: FAIL${c.note ? ' (' + c.note + ')' : ''}`), ...retired.map(b => `Battery ${b.id || '?'}: ${b.condition}${b.notes ? ' (' + b.notes + ')' : ''}`)];
     if (status === 'GROUNDED' && !failed.length) alerts.unshift('Aircraft marked GROUNDED by pilot');
     return {photos: (box._photos || []).length, aircraft, type, date: usDate(v('date')), pilot: v('pilot'), hours: v('hours'), firmware: v('firmware'), work: v('work'), notes: v('notes'),
-      checklist, batteries, result: status, failed: failed.map(c => c.item), alerts, alert: alerts.length > 0};
+      checklist, batteries, result: status, failed: failed.map(c => c.item.split(':')[0] + (c.note ? ' - ' + c.note : '')), alerts, alert: alerts.length > 0};
   }
 
   function validateMaint(box, e) {

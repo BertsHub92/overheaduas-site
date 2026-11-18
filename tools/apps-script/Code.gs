@@ -172,7 +172,9 @@ function aircraftList(ss) {
        .forEach(function (b) { bmap[String(b['Battery ID'])] = {id: String(b['Battery ID']), cycles: b['Cycle count'], health: b['Health %'], condition: b['Condition'], date: b['Entry date']}; });
     var bats = Object.keys(bmap).map(function (k) { return bmap[k]; }).filter(function (b) { return !/retire/i.test(b.condition); });
     return {id: id, nickname: a['Nickname'], model: a['Make / model'], serial: a['Serial #'], reg: a['FAA registration #'],
-            last: last ? {date: last['Entry date'], type: last['Entry type'], result: last['Result']} : null, inspected: insp ? insp['Entry date'] : '',
+            last: last ? {date: last['Entry date'], type: last['Entry type'], result: last['Result'], pilot: last['Pilot'] || '',
+                          reason: String(last['Failed items'] || last['Notes'] || last['Work performed / parts replaced'] || '').slice(0, 300)} : null,
+            inspected: insp ? insp['Entry date'] : '',
             firmware: fw ? fw['Firmware'] : '', hours: hrs ? hrs['Total flight time (hrs)'] : '', batteries: bats};
   });
 }
