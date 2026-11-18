@@ -164,6 +164,9 @@
   .fleet-card.down{border-left-color:var(--err);background:linear-gradient(0deg,rgba(196,35,48,.05),rgba(196,35,48,.05)),var(--card)}
   .fleet-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
   .fleet-top b{font-size:16px} .fleet-line{margin:6px 0 2px;font-size:14.5px;overflow-wrap:anywhere}
+  .insp-due{display:flex;flex-direction:column;gap:2px;margin:8px 0 4px;padding:8px 12px;border-radius:10px;background:#fff1b8;border:1px solid #e9c23f;color:#5c4200}
+  .insp-due span{font-weight:700;font-size:14.5px} .insp-due small{font-size:12.5px;opacity:.85}
+  .fleet-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
   .viewer-size{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:var(--blue-soft);font-size:13px;color:var(--blue)}
   .viewer-size button{border:1px solid var(--blue);background:transparent;color:var(--blue);border-radius:999px;padding:5px 11px;font:600 12.5px Inter,sans-serif;cursor:pointer}
   .viewer-size button.on{background:var(--blue);color:#fff}
@@ -500,7 +503,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 34; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 35; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1219,15 +1222,19 @@
     const ageDays = d => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(d || ''); return m ? Math.floor((Date.now() - new Date(+m[3], m[1] - 1, +m[2])) / 864e5) : null; };
     const draw = list => {
       const grounded = list.filter(a => a.last && a.last.result === 'GROUNDED'), ok = list.length - grounded.length;
-      box.innerHTML = `<div class="pcard-top"><h4>Fleet status</h4><span class="note">${ok} in service · ${grounded.length} grounded</span></div>
+      const needs = list.filter(a => { const d = ageDays(a.inspected); return d === null || d >= 30; }).length;
+      box.innerHTML = `<div class="pcard-top"><h4>Fleet status</h4><span class="note">${ok} in service · ${grounded.length} grounded${needs ? ` · <span class="warn-inline">${needs} need${needs === 1 ? 's' : ''} inspection</span>` : ''}</span></div>
         <p class="note">Status comes from each aircraft's latest log entry. Need an aircraft? Pick one that's in service, or call Overhead UAS at <a href="tel:+17605273267">(760) 527-3267</a>.</p>
         ${list.length ? `<div class="fleet">${list.slice().sort((x, y) => ((x.last && x.last.result === 'GROUNDED') - (y.last && y.last.result === 'GROUNDED')) || String(x.nickname || x.model).localeCompare(String(y.nickname || y.model))).map(a => {
-          const g = a.last && a.last.result === 'GROUNDED', days = ageDays(a.inspected), due = !g && (days === null || days > 35);
+          const g = a.last && a.last.result === 'GROUNDED', days = ageDays(a.inspected), due = days === null || days >= 30, soon = !due && days >= 25;
           return `<div class="fleet-card ${g ? 'down' : 'up'}"><div class="fleet-top"><div><b>${esc(a.nickname || a.model || a.id)}</b>${a.nickname && a.model ? `<span class="note"> · ${esc(a.model)}</span>` : ''}</div>
               <span class="badge ${g ? 'red' : 'green'}">${g ? '&#9940; Grounded' : '&#10003; Airworthy'}</span></div>
-            <div class="fleet-line">${g ? `<b>Out of service:</b> ${esc(a.last.reason || 'Grounded by pilot')}` : 'In service'}${due ? ` · <span class="warn-inline">${days === null ? 'No monthly inspection on record' : 'Monthly inspection overdue (' + esc(a.inspected) + ')'}</span>` : ''}</div>
+            <div class="fleet-line">${g ? `<b>Out of service:</b> ${esc(a.last.reason || 'Grounded by pilot')}` : 'In service'}</div>
+            ${due ? `<div class="insp-due"><span>&#9888; Monthly inspection required</span><small>${days === null ? 'No monthly inspection on record' : 'Last inspected ' + esc(a.inspected) + ' (' + days + ' days ago)'}</small></div>`
+              : soon ? `<div class="note warn-inline">Monthly inspection due in ${30 - days} day${30 - days === 1 ? '' : 's'}</div>` : ''}
             <div class="note">${a.last ? `Last entry ${esc(a.last.date)} · ${esc(a.last.type)}${a.last.pilot ? ' · ' + esc(a.last.pilot) : ''}` : 'No log entries yet'}${a.inspected && !due ? ` · inspected ${esc(a.inspected)}` : ''}</div>
-            <div class="note">${[a.serial && 'SN ' + esc(a.serial), a.reg && 'Reg ' + esc(a.reg), (a.batteries || []).length && a.batteries.length + (a.batteries.length === 1 ? ' battery' : ' batteries')].filter(Boolean).join(' · ')}</div></div>`; }).join('')}</div>`
+            <div class="note">${[a.serial && 'SN ' + esc(a.serial), a.reg && 'Reg ' + esc(a.reg), (a.batteries || []).length && a.batteries.length + (a.batteries.length === 1 ? ' battery' : ' batteries')].filter(Boolean).join(' · ')}</div>
+            ${g || due || soon ? `<div class="fleet-acts">${g ? `<button class="btn btn-ghost sm" data-fl="repair" data-id="${esc(a.id)}">Log repair</button>` : ''}${!g && (due || soon) ? `<button class="btn btn-primary sm" data-fl="inspect" data-id="${esc(a.id)}">Inspect now</button>` : ''}</div>` : ''}</div>`; }).join('')}</div>`
           : '<p class="note">No aircraft yet. Add your first one below.</p>'}
         <h4>Add an aircraft</h4>
         <div class="grid2">
@@ -1239,6 +1246,7 @@
         <p class="msg err" data-role="err" hidden></p>
         <div class="fill-actions"><button class="btn btn-primary" data-x="add">Add aircraft</button><button class="btn btn-ghost" data-x="close">Close</button></div>`;
       box.querySelector('[data-x=close]').onclick = () => box.remove();
+      box.querySelectorAll('[data-fl]').forEach(b => b.onclick = () => openMaint(f, card, {aircraftId: b.dataset.id, type: b.dataset.fl === 'repair' ? 'Repair / maintenance' : 'Monthly inspection'}));
       box.querySelector('[data-x=add]').onclick = async e => {
         const v = k => box.querySelector(`[data-a=${k}]`).value.trim(), err = box.querySelector('[data-role=err]');
         if (!v('model')) { err.hidden = false; err.textContent = 'Enter the make / model.'; return; }
@@ -1254,7 +1262,7 @@
   }
 
   // ----- Log a maintenance entry
-  async function openMaint(f, card) {
+  async function openMaint(f, card, pre = {}) {
     const app = f.app, box = panel(card, 'm-log');
     box._sigs = {};
     box.innerHTML = '<p class="note">Loading aircraft…</p>';
@@ -1396,7 +1404,10 @@
     box.addEventListener('change', e => e.target.closest('.radios')?.classList.remove('invalid'));
     sync();
     q('[data-x=submit]').onclick = e => submitMaint(f, box, list, e.currentTarget);
-    q('[data-k=aircraft]').focus();
+    if (pre.aircraftId) { const i = list.findIndex(x => String(x.id) === String(pre.aircraftId)), sel = q('[data-k=aircraft]');
+      if (i >= 0) { sel.value = String(i); sel.onchange({target: sel}); } }
+    if (pre.type) { const r = q(`input[name=etype][value="${pre.type}"]`); if (r) { r.checked = true; sync(); } }
+    if (pre.aircraftId) box.scrollIntoView({behavior: 'smooth', block: 'start'}); else q('[data-k=aircraft]').focus();
   }
 
   function collectMaint(f, box, list) {
