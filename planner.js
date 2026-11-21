@@ -252,7 +252,10 @@
     const altWind = h => { if (!h) return null; const a = +$('plAlt').value || 400; return a <= 50 ? h.w10 : a <= 300 ? h.w80 : h.w120; };
 
     function summarize() {
-      const B = S.brief || {}, grid = B.grid || [], cls = B.cls || [];
+      const B = S.brief || {}, grid = B.grid || [];
+      // Only real airspace classes count. The FAA layer also lists Mode C veils (a transponder ring for manned aircraft
+      // around Class B airports, e.g. "MIRAMAR MCAS MODE C"), which are not controlled airspace for drones.
+      const cls = (B.cls || []).filter(a => /^[BCDE]$/.test(String(pick(a, /^CLASS$/i) || '').trim().toUpperCase()) && !/MODE\s*C/i.test(String(pick(a, /^NAME$/i) || '') + ' ' + String(pick(a, /^LOCAL_TYPE$/i) || '')));
       const alt0 = +$('plAlt').value || 400, elevFt = B.om && typeof B.om.elevation === 'number' ? B.om.elevation * 3.28084 : null;
       // Floor of each airspace in ft above the ground. E5/E6/E7 are transition / en-route areas that never start at the surface
       // (700 or 1,200 ft AGL or higher), so below 400 ft they are Class G. MSL floors use the ground elevation from the forecast.
