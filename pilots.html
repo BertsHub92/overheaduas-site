@@ -166,6 +166,7 @@
   .fleet-top b{font-size:16px} .fleet-line{margin:6px 0 2px;font-size:14.5px;overflow-wrap:anywhere}
   .insp-due{display:flex;flex-direction:column;gap:2px;margin:8px 0 4px;padding:8px 12px;border-radius:10px;background:#fff1b8;border:1px solid #e9c23f;color:#5c4200}
   .insp-due span{font-weight:700;font-size:14.5px} .insp-due small{font-size:12.5px;opacity:.85}
+  .insp-next{margin:6px 0 2px;font-size:14px;color:var(--muted)} .insp-next b{color:var(--text)} .insp-next.soon{color:var(--warn,#c77700);font-weight:600}
   .fleet-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
   .authbox{flex-basis:100%;margin-top:8px;border-radius:10px;padding:10px 12px;border:1px solid var(--err);background:rgba(196,35,48,.06);font-size:14px}
   .authbox.ok{border-color:var(--ok);background:rgba(27,122,64,.07)} .authbox .note{margin:4px 0 6px}
@@ -507,7 +508,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 38; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 39; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1220,23 +1221,31 @@
   }
 
   // ----- Aircraft list + add
+  const parseMdy = d => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(d || ''); return m ? new Date(+m[3], m[1] - 1, +m[2]) : null; };
+  const fmtMdy = d => `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
+  function inspDue(inspected) {     // {due: Date|null, daysLeft: number|null}; due date = same day next month after the last monthly inspection
+    const last = parseMdy(inspected); if (!last) return {due: null, daysLeft: null};
+    const y = last.getFullYear(), m = last.getMonth() + 1, dim = new Date(y, m + 1, 0).getDate(), due = new Date(y, m, Math.min(last.getDate(), dim));
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    return {due, daysLeft: Math.round((due - t) / 864e5)};
+  }
   async function openAircraft(f, card) {
     const app = f.app, box = panel(card, 'm-aircraft');
     box.innerHTML = '<h4>Fleet status</h4><p class="note">Loading…</p>';
     const ageDays = d => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(d || ''); return m ? Math.floor((Date.now() - new Date(+m[3], m[1] - 1, +m[2])) / 864e5) : null; };
     const draw = list => {
       const grounded = list.filter(a => a.last && a.last.result === 'GROUNDED'), ok = list.length - grounded.length;
-      const needs = list.filter(a => { const d = ageDays(a.inspected); return d === null || d >= 30; }).length;
+      const needs = list.filter(a => { const d = inspDue(a.inspected); return !d.due || d.daysLeft <= 0; }).length;
       box.innerHTML = `<div class="pcard-top"><h4>Fleet status</h4><span class="note">${ok} in service · ${grounded.length} grounded${needs ? ` · <span class="warn-inline">${needs} need${needs === 1 ? 's' : ''} inspection</span>` : ''}</span></div>
         <p class="note">Status comes from each aircraft's latest log entry. Need an aircraft? Pick one that's in service, or call Overhead UAS at <a href="tel:+17605273267">(760) 527-3267</a>.</p>
         ${list.length ? `<div class="fleet">${list.slice().sort((x, y) => ((x.last && x.last.result === 'GROUNDED') - (y.last && y.last.result === 'GROUNDED')) || String(x.nickname || x.model).localeCompare(String(y.nickname || y.model))).map(a => {
-          const g = a.last && a.last.result === 'GROUNDED', days = ageDays(a.inspected), due = days === null || days >= 30, soon = !due && days >= 25;
+          const g = a.last && a.last.result === 'GROUNDED', days = ageDays(a.inspected), D = inspDue(a.inspected), due = !D.due || D.daysLeft <= 0, soon = !due && D.daysLeft <= 5;
           return `<div class="fleet-card ${g ? 'down' : 'up'}"><div class="fleet-top"><div><b>${esc(a.nickname || a.model || a.id)}</b>${a.nickname && a.model ? `<span class="note"> · ${esc(a.model)}</span>` : ''}</div>
               <span class="badge ${g ? 'red' : 'green'}">${g ? '&#9940; Grounded' : '&#10003; Airworthy'}</span></div>
             <div class="fleet-line">${g ? `<b>Out of service:</b> ${esc(a.last.reason || 'Grounded by pilot')}` : 'In service'}</div>
-            ${due ? `<div class="insp-due"><span>&#9888; Monthly inspection required</span><small>${days === null ? 'No monthly inspection on record' : 'Last inspected ' + esc(a.inspected) + ' (' + days + ' days ago)'}</small></div>`
-              : soon ? `<div class="note warn-inline">Monthly inspection due in ${30 - days} day${30 - days === 1 ? '' : 's'}</div>` : ''}
-            <div class="note">${a.last ? `Last entry ${esc(a.last.date)} · ${esc(a.last.type)}${a.last.pilot ? ' · ' + esc(a.last.pilot) : ''}` : 'No log entries yet'}${a.inspected && !due ? ` · inspected ${esc(a.inspected)}` : ''}</div>
+            ${due ? `<div class="insp-due"><span>&#9888; Monthly inspection required</span><small>${!D.due ? 'No monthly inspection on record' : 'Was due ' + fmtMdy(D.due) + ' · last inspected ' + esc(a.inspected) + ' (' + days + ' days ago)'}</small></div>`
+              : `<div class="insp-next${soon ? ' soon' : ''}">Next inspection due <b>${fmtMdy(D.due)}</b>${soon ? ` · in ${D.daysLeft} day${D.daysLeft === 1 ? '' : 's'}` : ''}</div>`}
+            <div class="note">${a.last ? `Last entry ${esc(a.last.date)} · ${esc(a.last.type)}${a.last.pilot ? ' · ' + esc(a.last.pilot) : ''}` : 'No log entries yet'}${a.inspected && !due ? ` · last inspected ${esc(a.inspected)}` : ''}</div>
             <div class="note">${[a.serial && 'SN ' + esc(a.serial), a.reg && 'Reg ' + esc(a.reg), (a.batteries || []).length && a.batteries.length + (a.batteries.length === 1 ? ' battery' : ' batteries')].filter(Boolean).join(' · ')}</div>
             ${g || due || soon ? `<div class="fleet-acts">${g ? `<button class="btn btn-ghost sm" data-fl="repair" data-id="${esc(a.id)}">Log repair</button>` : ''}${!g && (due || soon) ? `<button class="btn btn-primary sm" data-fl="inspect" data-id="${esc(a.id)}">Inspect now</button>` : ''}</div>` : ''}</div>`; }).join('')}</div>`
           : '<p class="note">No aircraft yet. Add your first one below.</p>'}
@@ -1359,7 +1368,7 @@
         info.hidden = false;
         info.innerHTML = `<div class="ac-grid"><div><span>Serial #</span><b>${esc(a.serial || '–')}</b></div><div><span>FAA reg #</span><b>${esc(a.reg || '–')}</b></div>
           <div><span>Last firmware</span><b>${esc(a.firmware || '–')}</b></div><div><span>Flight time</span><b>${a.hours !== '' && a.hours != null ? esc(a.hours) + ' hrs' : '–'}</b></div>
-          <div><span>Batteries on record</span><b>${bats.length}</b></div><div><span>Last entry</span><b>${a.last ? esc(a.last.date) + ' · ' + esc(a.last.type) : 'None yet'}</b>${a.last && a.last.result === 'GROUNDED' ? ' <span class="badge red">GROUNDED</span>' : ''}</div></div>`;
+          <div><span>Batteries on record</span><b>${bats.length}</b></div><div><span>Next inspection due</span><b>${(d => !d.due ? 'Now (none on record)' : d.daysLeft <= 0 ? fmtMdy(d.due) + ' (overdue)' : fmtMdy(d.due))(inspDue(a.inspected))}</b></div><div><span>Last entry</span><b>${a.last ? esc(a.last.date) + ' · ' + esc(a.last.type) : 'None yet'}</b>${a.last && a.last.result === 'GROUNDED' ? ' <span class="badge red">GROUNDED</span>' : ''}</div></div>`;
         if (a.firmware && !q('[data-k=firmware]').value) { q('[data-k=firmware]').value = a.firmware; q('[data-h=firmware]').textContent = 'Filled from the last entry. Change it if you updated the firmware.'; }
         if (a.hours !== '' && a.hours != null) q('[data-h=hours]').textContent = 'Last recorded: ' + a.hours + ' hrs';
         const have = new Set(qa('.bat [data-b=id]').map(i => i.value.trim()));
