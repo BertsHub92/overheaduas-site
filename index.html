@@ -45,6 +45,12 @@
   .btn-primary:hover{background:var(--accent-2);transform:translateY(-1px)}
   .btn-ghost{border:1px solid #2b4560;color:var(--text)}
   .btn-ghost:hover{border-color:var(--silver);color:#fff}
+  .share-box{display:flex;flex-direction:column;gap:6px;align-items:flex-start;border:1px dashed #2b4560;border-radius:14px;padding:16px 18px;margin:18px 0}
+  .share-box span{color:var(--muted);font-size:14px} .share-box .btn{margin-top:6px;padding:10px 18px;cursor:pointer;background:none;font:inherit;font-weight:600}
+  .share-menu{position:fixed;inset:0;z-index:100;background:rgba(5,12,20,.7);display:flex;align-items:flex-end;justify-content:center;padding:16px}
+  .share-sheet{background:#0f2133;border:1px solid #2b4560;border-radius:16px;padding:16px;width:100%;max-width:420px;display:grid;gap:8px}
+  .share-sheet b{font-size:16px;margin-bottom:4px} .share-sheet a,.share-sheet button{display:block;text-align:left;padding:13px 14px;border-radius:10px;border:1px solid #2b4560;background:none;color:var(--text);font:inherit;font-size:15px;cursor:pointer;text-decoration:none}
+  .share-sheet .x{text-align:center;color:var(--muted)}
 
   /* Nav */
   header{position:sticky;top:0;z-index:50;background:rgba(8,17,27,.82);backdrop-filter:blur(12px);border-bottom:1px solid rgba(29,50,71,.6)}
@@ -541,6 +547,8 @@
           <div class="icon" style="margin:0"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></div>
           <div><small>Reviews</small><a href="https://g.page/r/CRL2CBHOBZmgEBM/review" target="_blank" rel="noopener">Review us on Google &rarr;</a><br><a href="https://yelp.to/oQH6SLngww" target="_blank" rel="noopener">See us on Yelp &rarr;</a></div>
         </div>
+        <div class="share-box"><b>Know someone who needs aerial photos?</b><span>Send them our site. It only takes a second.</span>
+          <button class="btn btn-ghost" type="button" data-share><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7"/><path d="M16 6l-4-4-4 4M12 2v14"/></svg>Share Overhead UAS</button></div>
         <p class="signoff">We look forward to hearing from you.<b>Respectfully, the Overhead UAS team</b></p>
       </div>
 
@@ -592,7 +600,7 @@
 <footer>
   <div class="wrap disclaimer">Overhead UAS is not a licensed land surveyor or roof inspector. Our aerial photos, video, and maps are visual documentation for planning and reference only, and do not replace a certified land survey or a professional roof inspection.</div>
   <div class="wrap">
-    <span>© <span id="yr">2026</span> Overhead UAS. All rights reserved. · <a href="pilots.html">Pilot Portal</a></span>
+    <span>© <span id="yr">2026</span> Overhead UAS. All rights reserved. · <a href="#" data-share>Share this site</a> · <a href="pilots.html">Pilot Portal</a></span>
     <span><a href="tel:+17605273267" data-phone>(760) 527-3267</a> · <a href="mailto:overheaduas@gmail.com">overheaduas@gmail.com</a> · <a href="https://g.page/r/CRL2CBHOBZmgEBM/review" target="_blank" rel="noopener">Google reviews</a> · <a href="https://yelp.to/oQH6SLngww" target="_blank" rel="noopener">Yelp</a></span>
   </div>
 </footer>
@@ -672,6 +680,30 @@
       btn.disabled = false; btn.textContent = 'Send Request';
     }
   });
+</script>
+<script>
+  // Share: the phone's own share sheet when available, otherwise text / email / Facebook / copy link
+  (() => {
+    const url = 'https://overheaduas.com/', title = 'Overhead UAS - Aerial photo, video & drone services',
+          text = 'Check out Overhead UAS - FAA-certified, insured drone photography and video in North County San Diego:';
+    const open = () => {
+      const m = document.createElement('div'); m.className = 'share-menu';
+      const sms = /iP(hone|ad|od)|Mac/.test(navigator.userAgent) ? 'sms:&body=' : 'sms:?body=';
+      m.innerHTML = `<div class="share-sheet"><b>Share Overhead UAS</b>
+        <a href="${sms}${encodeURIComponent(text + ' ' + url)}">Text message</a>
+        <a href="mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(text + '\n\n' + url)}">Email</a>
+        <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}" target="_blank" rel="noopener">Facebook</a>
+        <button type="button" data-copy>Copy link</button><button type="button" class="x" data-close>Close</button></div>`;
+      document.body.appendChild(m);
+      m.addEventListener('click', e => { if (e.target === m || e.target.dataset.close !== undefined) m.remove(); });
+      m.querySelector('[data-copy]').onclick = async e => { try { await navigator.clipboard.writeText(url); e.target.textContent = 'Link copied ✓'; } catch (x) { prompt('Copy this link:', url); } };
+    };
+    document.querySelectorAll('[data-share]').forEach(b => b.addEventListener('click', async e => {
+      e.preventDefault();
+      if (navigator.share) { try { await navigator.share({title, text, url}); return; } catch (x) { if (x && x.name === 'AbortError') return; } }
+      open();
+    }));
+  })();
 </script>
 </body>
 </html>
