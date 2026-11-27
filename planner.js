@@ -74,7 +74,7 @@
     const esc = X.esc;
     const S = {lat: null, lon: null, address: '', tz: undefined, brief: null, manual: {}, aircraft: null, auth: {}};
     root.innerHTML = `
-      <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div>
+      <div class="view-head"><a href="#missions" class="back-btn">&lsaquo; Missions</a><h2>Flight Briefing</h2></div>
       <div id="plBanner"></div>
       <div class="pcard plan-card">
         <div class="plan-search"><input type="search" id="plSearch" placeholder="Search an address or place" autocomplete="off">

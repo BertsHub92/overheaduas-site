@@ -231,7 +231,7 @@ ${groups(i)}</Placemark>\n`; });
     const S = {poly: [], drawing: false, planId: '', planMine: true, segs: [], route: null, cam: null, st: null, home: null, placingHome: false, tinfo: null, elevSrc: ''};
     const fmtFt = m => Math.round(m / FT).toLocaleString() + ' ft', fmtMi = m => (m / 1609.344).toFixed(m < 1609 ? 2 : 1) + ' mi';
     root.innerHTML = `
-      <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mapping Planner</h2></div>
+      <div class="view-head"><a href="#missions" class="back-btn">&lsaquo; Missions</a><h2>Mapping Flight Plan</h2></div>
       <div class="pcard plan-card">
         <div class="plan-search"><input type="search" id="mpSearch" placeholder="Search an address or place" autocomplete="off">
           <button class="btn btn-primary sm" id="mpGo">Search</button><button class="btn btn-ghost sm" id="mpMe" title="Use my location">&#9678; Me</button></div>
@@ -279,7 +279,7 @@ ${groups(i)}</Placemark>\n`; });
       <div class="pcard"><div class="pcard-top"><h4>Saved plans</h4><button class="btn btn-primary sm" id="mpSave">Save plan</button></div>
         <span class="save-msg" id="mpSaveMsg"></span>
         <div id="mpSaved"><p class="note">Loading…</p></div></div>
-      <p class="note">This is a planning aid. Check airspace (use Mission Planning or your LAANC app), obstacles, and terrain before every flight. Heights are relative to takeoff and don't follow terrain.</p>`;
+      <p class="note">This is a planning aid. Check airspace (use Flight Briefing or your LAANC app), obstacles, and terrain before every flight. Heights are relative to takeoff and don't follow terrain.</p>`;
 
     // ---- map
     const sat = L.tileLayer(ESRI, {maxZoom: 20, maxNativeZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics'});
