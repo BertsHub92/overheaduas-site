@@ -3,9 +3,9 @@
 // open the portal, sign in, fill out, and sign forms with no cell service. Only portal files are
 // handled; the public website and every other request go straight to the network.
 const CACHE = 'ouas-portal-v1';
-const PRECACHE = ['pilots.html', 'planner.js', 'portal.webmanifest', 'logo.png', 'favicon-192.png', 'apple-touch-icon.png',
+const PRECACHE = ['pilots.html', 'planner.js', 'mapping.js', 'portal.webmanifest', 'logo.png', 'favicon-192.png', 'apple-touch-icon.png',
   'vendor/pdf-lib.min.js', 'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js', 'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css'];
-const FRESH = /\/(pilots\.html|pilots\/?|planner\.js|version\.json|portal\.webmanifest|portal\/keys\.json|portal\/manifest\.bin)$/;   // network first
+const FRESH = /\/(pilots\.html|pilots\/?|planner\.js|mapping\.js|version\.json|portal\.webmanifest|portal\/keys\.json|portal\/manifest\.bin)$/;   // network first
 const STATIC = /\/(portal\/f-[0-9a-f]+\.bin|vendor\/.+|logo\.png|cert-logo\.jpg|favicon[^/]*|apple-touch-icon\.png)$/;            // cache first
 
 self.addEventListener('install', e => {

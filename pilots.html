@@ -172,6 +172,32 @@
   .authbox.ok{border-color:var(--ok);background:rgba(27,122,64,.07)} .authbox .note{margin:4px 0 6px}
   .auth-row{margin-top:6px} .auth-row select,.auth-row input{width:100%;padding:9px 10px;border:1px solid var(--field-line);border-radius:10px;background:var(--field);color:var(--text);font:14.5px Inter,sans-serif}
   .seg.locked label{opacity:.55;cursor:not-allowed}
+  /* Mapping planner */
+  .mp-wrap{position:relative;margin-top:10px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--card)}
+  .mp-tools{display:flex;gap:6px;flex-wrap:wrap;padding:8px}
+  .mp-tools .btn:disabled{opacity:.45}
+  .mp-map{height:min(62dvh,560px);min-height:340px;z-index:0}
+  .mp-wrap.drawing .mp-map{cursor:crosshair}
+  .mp-strip{padding:9px 12px;font-size:14px;border-top:1px solid var(--line);background:var(--card)}
+  .mp-wrap.mp-full{position:fixed;inset:0;z-index:140;border-radius:0;border:0;margin:0;display:flex;flex-direction:column}
+  .mp-wrap.mp-full .mp-map{flex:1;height:auto;min-height:0}
+  .mp-wrap.mp-full .mp-tools{padding:8px 8px 8px calc(8px + env(safe-area-inset-left));padding-top:calc(8px + env(safe-area-inset-top))}
+  .mp-wrap.mp-full .mp-strip{padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  .mp-v{background:#fff;border:3px solid #ffb400;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .mp-mid{background:rgba(255,255,255,.85);border:1px solid #ffb400;border-radius:50%;color:#8a5a00;font:700 14px/16px Inter,sans-serif;text-align:center}
+  .mp-tag{border-radius:50%;color:#fff;font:700 12px/22px Inter,sans-serif;text-align:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .mp-tag.start{background:#1b7a40} .mp-tag.end{background:#c42330}
+  .mp-cols{display:grid;gap:0 14px} @media (min-width:900px){.mp-cols{grid-template-columns:1fr 1fr}}
+  .mp-inputs select{width:100%}
+  #mappingView .mp-dir{display:flex;gap:8px;align-items:center} #mappingView .mp-dir input[type=range]{flex:1 1 auto;width:auto;min-width:0;padding:0;border:0;background:none;accent-color:var(--blue)}
+  #mappingView .mp-dir input[type=number]{width:84px;flex:none} #mappingView .mp-dir .btn{flex:none}
+  .mp-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px} @media (min-width:560px){.mp-stats{grid-template-columns:repeat(4,1fr)}}
+  .mp-cols .mp-stats{grid-template-columns:repeat(2,1fr)}
+  .mp-stat{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--bg)}
+  .mp-stat span{display:block;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em} .mp-stat b{font-size:17px} .mp-stat small{display:block;font-size:12px;color:var(--muted)}
+  .mp-warn{margin:8px 0 0;padding:8px 11px;border-radius:10px;background:#fff1b8;border:1px solid #e9c23f;color:#5c4200;font-size:14px}
+  .mp-exp{display:grid;gap:14px} @media (min-width:700px){.mp-exp{grid-template-columns:1fr 1fr}}
+  .mp-help{margin-top:12px;font-size:14px} .mp-help summary{cursor:pointer;color:var(--blue);font-weight:600} .mp-help li{margin:5px 0;line-height:1.5}
   .viewer-size{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:var(--blue-soft);font-size:13px;color:var(--blue)}
   .viewer-size button{border:1px solid var(--blue);background:transparent;color:var(--blue);border-radius:999px;padding:5px 11px;font:600 12.5px Inter,sans-serif;cursor:pointer}
   .viewer-size button.on{background:var(--blue);color:#fff}
@@ -468,6 +494,11 @@
         <div class="tile-body"><h3>Training</h3><p>Company, regulations, and safety courses with quizzes and certificates</p><span class="tile-meta" id="trainMeta">Courses and certificates</span></div>
         <span class="tile-go">&rsaquo;</span>
       </a>
+      <a class="tile" href="#mapping" id="mappingTile" hidden>
+        <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l16 3-3 13L5 17z"/><path d="M7 7.5l-1 8M10 8l-1.5 9M13 8.5l-2 9.5M16 9l-2 10"/></svg></div>
+        <div class="tile-body"><h3>Mapping Planner</h3><p>Draw an area and build a photo grid: ground resolution, photos, flight time, batteries, Litchi CSV and DJI Pilot 2 KMZ</p><span class="tile-meta">Plan a mapping flight</span></div>
+        <span class="tile-go">&rsaquo;</span>
+      </a>
       <a class="tile" href="#plan">
         <div class="tile-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg></div>
         <div class="tile-body"><h3>Mission Planning</h3><p>Map a location: airspace, LAANC ceiling, TFRs, airports, weather, and sun times</p><span class="tile-meta">Create a mission plan</span></div>
@@ -491,6 +522,7 @@
     </div>
     <div id="folderView" hidden></div>
     <div id="planView" hidden></div>
+    <div id="mappingView" hidden></div>
     <div id="missionsView" hidden></div>
     <div id="trainingView" hidden></div>
     <div id="newsView" hidden></div>
@@ -508,7 +540,7 @@
 
 <script>
 (() => {
-  const PAGE_VERSION = 40; // bump when the page changes; also update version.json
+  const PAGE_VERSION = 41; // bump when the page changes; also update version.json
   // If this page is an old cached copy, load the newest one automatically.
   fetch('version.json?t=' + Date.now(), {cache: 'no-store'}).then(r => r.json()).then(v => {
     const want = String(v.page || 0), have = new URLSearchParams(location.search).get('v');
@@ -1964,10 +1996,19 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
   // ---------- Mission Planning (planner.js + Leaflet, loaded on first use) ----------
   let plannerPromise = null;
   const loadAsset = (tag, attrs) => new Promise((ok, bad) => { const el = document.createElement(tag); Object.assign(el, attrs); el.onload = ok; el.onerror = bad; document.head.appendChild(el); });
+  let mappingPromise = null;
+  function openMapping() {
+    const v = $('mappingView');
+    if (!v.innerHTML) v.innerHTML = '<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mapping Planner</h2></div><p class="note">Loading map…</p>';
+    mappingPromise ||= Promise.all([loadAsset('link', {rel: 'stylesheet', href: 'vendor/leaflet/leaflet.css'}), window.L ? Promise.resolve() : loadAsset('script', {src: 'vendor/leaflet/leaflet.js'})])
+      .then(() => window.OUAS_MAPPING ? null : loadAsset('script', {src: 'mapping.js?v=' + PAGE_VERSION}));
+    mappingPromise.then(() => window.OUAS_MAPPING.mount(v, {papi, me: ME, esc, saveBlob, shareFile, nowStamp, activeMission}))
+      .catch(() => { v.innerHTML = '<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mapping Planner</h2></div><p class="err-msg">The map could not load. Check your connection and try again.</p>'; mappingPromise = null; });
+  }
   function openPlanner() {
     const v = $('planView');
     if (!v.innerHTML) v.innerHTML = '<div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mission Planning</h2></div><p class="note">Loading map…</p>';
-    plannerPromise ||= Promise.all([loadAsset('link', {rel: 'stylesheet', href: 'vendor/leaflet/leaflet.css'}), loadAsset('script', {src: 'vendor/leaflet/leaflet.js'})])
+    plannerPromise ||= Promise.all([loadAsset('link', {rel: 'stylesheet', href: 'vendor/leaflet/leaflet.css'}), window.L ? Promise.resolve() : loadAsset('script', {src: 'vendor/leaflet/leaflet.js'})])
       .then(() => loadAsset('script', {src: 'planner.js?v=' + PAGE_VERSION}));
     plannerPromise.then(() => window.OUAS_PLANNER.mount(v, {submit: manifest.submit, me: ME, profile: PROFILE, mydocs: MYDOCS, activeMission, showFile, esc, usDate, toB64, loadPdfLib, fetchBytes, saveBlob, shareFile, nowStamp,
       getForm: async prefix => { const f = manifest.forms.find(x => x.title.startsWith(prefix)); if (!f) throw new Error(prefix + ' not found'); return open(K, await fetchBytes('portal/' + f.id + '.bin'), f.id); }}))
@@ -2301,7 +2342,7 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
       if (!window.caches) return;
       const c = await caches.open('ouas-portal-v1');
       const files = ['pilots.html', 'planner.js', 'version.json', 'portal.webmanifest', 'portal/keys.json', 'portal/manifest.bin', 'logo.png', 'favicon-192.png',
-        'vendor/pdf-lib.min.js', 'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js', 'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css'].concat(ids.map(id => 'portal/' + id + '.bin'));
+        'vendor/pdf-lib.min.js', 'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js', 'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'mapping.js'].concat(ids.map(id => 'portal/' + id + '.bin'));
       for (const u of files) { try { const r = await fetch(u, {cache: 'no-store'}); if (r.ok) await c.put(new URL(u, location.href).href, r); } catch (e) {} }
       {
         for (const k of await c.keys()) { const m = /\/portal\/(f-[0-9a-f]+)\.bin/.exec(k.url); if (m && !ids.includes(m[1])) await c.delete(k); } }
@@ -2460,19 +2501,21 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     let v = 'home';
     if (h === '#forms') v = 'forms';
     else if (h === '#plan') v = 'plan';
+    else if (h === '#mapping' && canPilot) v = 'mapping';
     else if ((h === '#missions' || h.startsWith('#mission/')) && canPilot) v = 'missions';
     else if (h === '#news' && canPilot) v = 'news';
     else if ((h === '#training' || h.startsWith('#course/') || h.startsWith('#course-edit/')) && canPilot) v = 'training';
     else if (h === '#me' && canPilot) v = 'folder';
     else if (h === '#pilots' && admin && canPilot) v = 'pilots';
     else if (h.startsWith('#pilot/') && admin && canPilot) v = 'folder';
-    const views = {home: 'home', forms: 'formsView', folder: 'folderView', pilots: 'pilotsView', plan: 'planView', missions: 'missionsView', training: 'trainingView', news: 'newsView'};
+    const views = {home: 'home', forms: 'formsView', folder: 'folderView', pilots: 'pilotsView', plan: 'planView', mapping: 'mappingView', missions: 'missionsView', training: 'trainingView', news: 'newsView'};
     Object.entries(views).forEach(([k, id]) => $(id).hidden = k !== v);
     $('formCount').textContent = manifest.forms.length + ' forms';
-    $('meTile').hidden = !canPilot; $('adminTile').hidden = !(admin && canPilot); $('missionTile').hidden = !canPilot; $('trainTile').hidden = !canPilot; $('newsTile').hidden = !canPilot; document.querySelector('#files .top-btns').hidden = v !== 'home'; if ($('offlineNote') && $('offlineNote').innerHTML) $('offlineNote').hidden = v !== 'home'; $('annBanner').hidden = v !== 'home' || !$('annBanner').innerHTML; drawActive();
+    $('meTile').hidden = !canPilot; $('adminTile').hidden = !(admin && canPilot); $('missionTile').hidden = !canPilot; $('mappingTile').hidden = !canPilot; $('trainTile').hidden = !canPilot; $('newsTile').hidden = !canPilot; document.querySelector('#files .top-btns').hidden = v !== 'home'; if ($('offlineNote') && $('offlineNote').innerHTML) $('offlineNote').hidden = v !== 'home'; $('annBanner').hidden = v !== 'home' || !$('annBanner').innerHTML; drawActive();
     if (v === 'folder') openFolder(h === '#me' ? ME.id : decodeURIComponent(h.slice(7)));
     if (v === 'pilots') openPilots();
     if (v === 'plan') openPlanner();
+    if (v === 'mapping') openMapping();
     if (v === 'news') openNews();
     if (v === 'training') h.startsWith('#course-edit/') ? openCourseEdit(decodeURIComponent(h.slice(13))) : h.startsWith('#course/') ? openCourse(decodeURIComponent(h.slice(8))) : openTraining();
     if (v === 'missions') h.startsWith('#mission/') ? openMission(decodeURIComponent(h.slice(9))) : openMissions();
@@ -2485,7 +2528,8 @@ ${bats.map(x => `<tr><td>${cell(x['Entry date'])}</td><td>${cell(x['Battery ID']
     $('whoName').innerHTML = '&#10003; Signed in'; $('whoCert').innerHTML = ''; $('whoMission').innerHTML = '';
     if ($('missionsView')) $('missionsView').innerHTML = '';
     if ($('trainingView')) $('trainingView').innerHTML = ''; TRAIN = null;
-    { const pv = $('planView'); if (pv && pv._planner) { try { pv._planner.map.remove(); } catch (e) {} pv._planner = null; } if (pv) pv.innerHTML = ''; }   // next pilot starts a fresh plan if ($('offlineNote')) $('offlineNote').hidden = true;
+    { const pv = $('planView'); if (pv && pv._planner) { try { pv._planner.map.remove(); } catch (e) {} pv._planner = null; } if (pv) pv.innerHTML = ''; }
+    { const mv = $('mappingView'); if (mv && mv._mapping) { try { mv._mapping.map.remove(); } catch (e) {} mv._mapping = null; } if (mv) mv.innerHTML = ''; document.body.style.overflow = ''; }   // next pilot starts a fresh plan if ($('offlineNote')) $('offlineNote').hidden = true;
     NEWS = null; if ($('newsView')) $('newsView').innerHTML = ''; if ($('annBanner')) { $('annBanner').innerHTML = ''; $('annBanner').hidden = true; }
     { const t = document.querySelector('.tour'); if (t) t.remove(); }
     $('files').hidden = true; $('lock').hidden = false; document.querySelector('.lead').hidden = false; $('code').focus();

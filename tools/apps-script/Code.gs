@@ -193,6 +193,7 @@ function handleAction(d) {
   if (/^train\./.test(d.action)) return trainAction(d);
   if (/^ann\./.test(d.action)) return annAction(d);
   if (/^qual\./.test(d.action)) return qualAction(d);
+  if (/^mapplan\./.test(d.action)) return mapPlanAction(d);
   if (/^(me|pilot|pilots|doc)\./.test(d.action)) return pilotAction(d);
   if (d.action === 'plan.tfr') return planTfr(d);
   if (d.action === 'plan.wx') return planWx(d);
@@ -276,7 +277,8 @@ var PTABS = {
   Completions: ['Course ID', 'Course', 'Pilot ID', 'Pilot', 'Score %', 'Passed', 'Completed', 'Valid until', 'Certificate file ID'],
   Announcements: ['Ann ID', 'Title', 'Message', 'Important', 'Posted', 'Posted by', 'Expires', 'Status', 'Emailed'],
   'Announcement Reads': ['Ann ID', 'Pilot ID', 'Pilot', 'Read'],
-  Qualifications: ['Pilot ID', 'Section', 'Item', 'Date', 'Pilot init', 'Company init', 'Details', 'Source', 'Updated', 'Updated by', 'Status']
+  Qualifications: ['Pilot ID', 'Section', 'Item', 'Date', 'Pilot init', 'Company init', 'Details', 'Source', 'Updated', 'Updated by', 'Status'],
+  'Mapping Plans': ['Plan ID', 'Name', 'Pilot ID', 'Pilot', 'Drone', 'Area (acres)', 'Settings JSON', 'Polygon JSON', 'Created', 'Updated', 'Status']
 };
 var PFIELDS = ['name', 'phone', 'email', 'cert', 'issued', 'recurrent', 'due', 'other'];
 
@@ -865,4 +867,47 @@ function issueQualCert(ss, pid) {
   ss.getSheetByName('Documents').appendRow([file.getId(), pid, 'Other certificate', yr + ' Pilot Qualification Certificate (OVH-402)', '', '', '12/31/' + yr, file.getName(), now, clean(signer, 80), 'Active']);
   qualSet(ss, pid, 'info', 'certificate-' + yr, {details: JSON.stringify({year: yr, date: mdy, file: file.getId(), id: certId})}, signer);
   return file.getId();
+}
+
+
+// ===================== Mapping flight plans (portal Mapping Planner) =====================
+// Every pilot can see and open the company's saved plans; only the pilot who saved one (or an admin) can change or delete it.
+function mapPlanAction(d) {
+  var ss = pilotBook(), me = pilotAuth(d, ss), sh = ss.getSheetByName('Mapping Plans'), H = PTABS['Mapping Plans'];
+  var meta = function (r) { return {id: String(r['Plan ID']), name: r['Name'], pilotId: String(r['Pilot ID']), pilot: r['Pilot'], drone: r['Drone'],
+    acres: r['Area (acres)'], updated: r['Updated'], mine: String(r['Pilot ID']) === me.id}; };
+  if (d.action === 'mapplan.list') return {ok: true, plans: rows(sh).filter(function (r) { return r['Status'] !== 'Deleted'; }).map(meta).reverse()};
+  if (d.action === 'mapplan.get') {
+    var g = findRow(sh, 'Plan ID', String(d.id)); if (!g || g.obj['Status'] === 'Deleted') return {ok: false, error: 'plan not found'};
+    var out = meta(g.obj);
+    try { out.settings = JSON.parse(String(g.obj['Settings JSON'])); out.polygon = JSON.parse(String(g.obj['Polygon JSON'])); } catch (e) { return {ok: false, error: 'plan data could not be read'}; }
+    return {ok: true, plan: out};
+  }
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    if (d.action === 'mapplan.save') {
+      var p = d.plan || {}, poly = p.polygon;
+      if (!(poly instanceof Array) || poly.length < 3 || poly.length > 300) return {ok: false, error: 'the area needs 3 to 300 corners'};
+      for (var i = 0; i < poly.length; i++) { var q = poly[i]; if (!(q instanceof Array) || !(Math.abs(+q[0]) <= 90) || !(Math.abs(+q[1]) <= 180)) return {ok: false, error: 'bad area coordinates'}; }
+      var st = JSON.stringify(p.settings || {}).slice(0, 4000), pj = JSON.stringify(poly.map(function (q) { return [+q[0], +q[1]]; }));
+      var pr = findRow(ss.getSheetByName('Pilots'), 'Pilot ID', me.id), pname = (pr && pr.obj['Name']) || me.name, now = new Date();
+      var ex = p.id ? findRow(sh, 'Plan ID', String(p.id)) : null;
+      if (ex && ex.obj['Status'] !== 'Deleted' && (String(ex.obj['Pilot ID']) === me.id || me.admin)) {
+        sh.getRange(ex.i, 2, 1, 5).setValues([[clean(p.name, 80) || 'Mapping plan', ex.obj['Pilot ID'], ex.obj['Pilot'], clean(p.drone, 30), +p.acres || 0]]);
+        sh.getRange(ex.i, H.indexOf('Settings JSON') + 1, 1, 2).setValues([[st, pj]]);
+        sh.getRange(ex.i, H.indexOf('Updated') + 1).setValue(now);
+        return {ok: true, id: String(ex.obj['Plan ID'])};
+      }
+      var props = PropertiesService.getScriptProperties(), n = Number(props.getProperty('MAPPLAN_NEXT') || 1), id = 'MP-' + ('00' + n).slice(-3);
+      props.setProperty('MAPPLAN_NEXT', String(n + 1));
+      sh.appendRow([id, clean(p.name, 80) || 'Mapping plan', me.id, clean(pname, 80), clean(p.drone, 30), +p.acres || 0, st, pj, now, now, 'Active']);
+      return {ok: true, id: id};
+    }
+    if (d.action === 'mapplan.delete') {
+      var r = findRow(sh, 'Plan ID', String(d.id)); if (!r) return {ok: false, error: 'plan not found'};
+      if (String(r.obj['Pilot ID']) !== me.id && !me.admin) return {ok: false, error: 'only the pilot who saved it or an admin can delete it'};
+      sh.getRange(r.i, H.indexOf('Status') + 1).setValue('Deleted'); return {ok: true};
+    }
+  } finally { lock.releaseLock(); }
+  return {ok: false, error: 'unknown action'};
 }
