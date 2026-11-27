@@ -61,11 +61,39 @@
   }
   function distM(a, b) { const dLat = (b[0] - a[0]) * RAD, dLon = (b[1] - a[1]) * RAD, x = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * RAD) * Math.cos(b[0] * RAD) * Math.sin(dLon / 2) ** 2; return 2 * R_EARTH * Math.asin(Math.sqrt(x)); }
   function bearing(a, b) { const y = Math.sin((b[1] - a[1]) * RAD) * Math.cos(b[0] * RAD), x = Math.cos(a[0] * RAD) * Math.sin(b[0] * RAD) - Math.sin(a[0] * RAD) * Math.cos(b[0] * RAD) * Math.cos((b[1] - a[1]) * RAD); return (Math.atan2(y, x) / RAD + 360) % 360; }
-  function stats(segs, cam, speedMs, d) {
-    let lineDist = 0, transit = 0, photos = 0;
-    segs.forEach((sg, i) => { const L = distM(sg[0], sg[1]); lineDist += L; photos += Math.ceil(L / cam.photoSp) + 1; if (i) transit += distM(segs[i - 1][1], sg[0]); });
-    const wps = segs.length * 2, secs = (lineDist + transit) / speedMs + wps * 3 + 90;   // ~3 s to stop and turn at each waypoint, 90 s takeoff / climb / return
-    return {lineDist, transit, dist: lineDist + transit, photos, wps, lines: segs.length, secs, batteries: Math.max(1, Math.ceil(secs / 60 / d.batt)),
+  const lerp = (a, b, f) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+  // Route = flight lines, each with waypoints (pts) and heights above takeoff (h, meters).
+  // Flat: 2 waypoints per line at the set altitude. Terrain: extra waypoints every k photo spacings (so photos stay
+  // evenly spaced), each set to altitude + (highest ground near it - ground at takeoff).
+  function flatRoute(segs, altM) { return segs.map(s => ({pts: [s[0], s[1]], h: [altM, altM]})); }
+  function lineStations(seg, photoSp, maxSpacing) {     // distances (m) along a line for waypoints
+    const L = distM(seg[0], seg[1]), step = photoSp * Math.max(1, Math.floor(maxSpacing / photoSp)), d = [0];
+    for (let x = step; x < L - step * 0.25; x += step) d.push(x);
+    d.push(L); return {L, d};
+  }
+  function terrainSamples(segs, photoSp, maxSpacing, stepM) {   // every point we need ground elevation for
+    const lines = segs.map(seg => { const st = lineStations(seg, photoSp, maxSpacing), t = new Set(st.d);
+      for (let x = 0; x < st.L; x += stepM) t.add(x);
+      const ts = [...t].sort((a, b) => a - b); return {seg, L: st.L, d: st.d, ts, sp: ts.map(x => lerp(seg[0], seg[1], st.L ? x / st.L : 0))}; });
+    return lines;
+  }
+  function terrainRoute(lines, elevOf, altM, homeE) {
+    let gMin = Infinity, gMax = -Infinity, hMin = Infinity, hMax = -Infinity;
+    const route = lines.map(ln => {
+      const e = ln.sp.map(elevOf); e.forEach(v => { gMin = Math.min(gMin, v); gMax = Math.max(gMax, v); });
+      const h = ln.d.map((x, k) => { const lo = k ? ln.d[k - 1] : 0, hi = k < ln.d.length - 1 ? ln.d[k + 1] : ln.L; let m = -Infinity;
+        ln.ts.forEach((t, j) => { if (t >= lo - 0.01 && t <= hi + 0.01) m = Math.max(m, e[j]); });
+        const v = altM + m - homeE; hMin = Math.min(hMin, v); hMax = Math.max(hMax, v); return v; });
+      return {pts: ln.d.map(x => lerp(ln.seg[0], ln.seg[1], ln.L ? x / ln.L : 0)), h};
+    });
+    return {route, gMin, gMax, hMin, hMax};
+  }
+  function stats(route, cam, speedMs, d) {
+    let lineDist = 0, transit = 0, photos = 0, wps = 0;
+    route.forEach((ln, i) => { const L = distM(ln.pts[0], ln.pts[ln.pts.length - 1]); lineDist += L; photos += Math.ceil(L / cam.photoSp) + 1; wps += ln.pts.length;
+      if (i) { const prev = route[i - 1].pts; transit += distM(prev[prev.length - 1], ln.pts[0]); } });
+    const secs = (lineDist + transit) / speedMs + route.length * 6 + (wps - route.length * 2) * 0.5 + 90;   // ~3 s per stop at line ends, 90 s takeoff / climb / return
+    return {lineDist, transit, dist: lineDist + transit, photos, wps, lines: route.length, secs, batteries: Math.max(1, Math.ceil(secs / 60 / d.batt)),
       interval: cam.photoSp / speedMs, maxSpeed: cam.photoSp / d.minInt};
   }
 
@@ -73,28 +101,35 @@
   const LITCHI_HEAD = ['latitude', 'longitude', 'altitude(m)', 'heading(deg)', 'curvesize(m)', 'rotationdir', 'gimbalmode', 'gimbalpitchangle']
     .concat(...Array.from({length: 15}, (_, i) => ['actiontype' + (i + 1), 'actionparam' + (i + 1)]))
     .concat(['altitudemode', 'speed(m/s)', 'poi_latitude', 'poi_longitude', 'poi_altitude(m)', 'poi_altitudemode', 'photo_timeinterval', 'photo_distinterval']).join(',');
-  // Each line = 2 waypoints: the first tilts the camera, takes a photo and keeps shooting every photoSp meters
-  // on the way to the second, which takes the last photo of the line. Missions are split at 99 waypoints.
-  function litchiCsvs(segs, altM, speedMs, photoSp, maxWp = 99) {
-    const perPart = Math.floor(maxWp / 2), parts = [];
-    for (let i = 0; i < segs.length; i += perPart) parts.push(segs.slice(i, i + perPart));
+  // First waypoint of a line tilts the camera and starts photos every photoSp meters; middle waypoints (terrain) keep
+  // shooting and use curved turns so the drone flies through them; the last waypoint takes the final photo.
+  // Lines are kept whole in one mission (a line longer than 99 waypoints is split), missions hold up to 99 waypoints.
+  function litchiCsvs(route, speedMs, photoSp, maxWp = 99) {
+    const pieces = [];
+    route.forEach(ln => { for (let i = 0; i < ln.pts.length - 1; i += maxWp - 1) { const j = Math.min(ln.pts.length, i + maxWp); pieces.push({pts: ln.pts.slice(i, j), h: ln.h.slice(i, j)}); } });
+    const parts = []; let cur = [], n = 0;
+    pieces.forEach(pc => { if (n + pc.pts.length > maxWp && cur.length) { parts.push(cur); cur = []; n = 0; } cur.push(pc); n += pc.pts.length; });
+    if (cur.length) parts.push(cur);
     return parts.map(part => {
-      const rows = [LITCHI_HEAD];
-      for (const [a, b] of part) {
-        const hd = Math.round(bearing(a, b)) % 360;
-        const row = (p, acts, dist) => {
+      const rows = [LITCHI_HEAD]; let wps = 0;
+      for (const ln of part) {
+        const last = ln.pts.length - 1, hd = Math.round(bearing(ln.pts[0], ln.pts[last])) % 360, curve = last > 1 ? Math.min(20, distM(ln.pts[0], ln.pts[1]) * 0.3) : 0;
+        ln.pts.forEach((p, k) => {
+          const acts = k === 0 ? [[5, -90], [1, 0]] : k === last ? [[1, 0]] : [];
           const A = acts.concat(Array(15 - acts.length).fill([-1, 0])).flat();
-          return [p[0].toFixed(7), p[1].toFixed(7), altM.toFixed(1), hd, 0, 0, 2, -90].concat(A, [0, speedMs.toFixed(1), 0, 0, 0, 0, -1, dist]).join(',');
-        };
-        rows.push(row(a, [[5, -90], [1, 0]], photoSp.toFixed(1)), row(b, [[1, 0]], -1));
+          rows.push([p[0].toFixed(7), p[1].toFixed(7), ln.h[k].toFixed(1), hd, k > 0 && k < last ? curve.toFixed(1) : 0, 0, 2, -90].concat(A, [0, speedMs.toFixed(1), 0, 0, 0, 0, -1, k < last ? photoSp.toFixed(1) : -1]).join(','));
+          wps++;
+        });
       }
-      return {text: rows.join('\n') + '\n', wps: part.length * 2};
+      return {text: rows.join('\n') + '\n', wps};
     });
   }
   const xmlEsc = t => String(t).replace(/[<>&'"]/g, ch => ({'<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;'}[ch]));
   // DJI Pilot 2 waypoint route (WPML 1.0.2) for the Mavic 3 Thermal: drone 77 / sub 1, payload 67, wide lens.
-  function djiKmz(segs, altM, speedMs, photoSp, name, st) {
-    const now = Date.now(), pts = segs.flat(), h = altM.toFixed(1), v = speedMs.toFixed(1);
+  // Heights are per waypoint (relative to takeoff); photos fire every photoSp meters from the start to the end of each line.
+  function djiKmz(route, speedMs, photoSp, name, st) {
+    const now = Date.now(), v = speedMs.toFixed(1), pts = [], starts = [], ends = [];
+    route.forEach(ln => { starts.push(pts.length); ln.pts.forEach((p, k) => pts.push({p, h: ln.h[k], mid: k > 0 && k < ln.pts.length - 1})); ends.push(pts.length - 1); });
     const head = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.2">\n<Document>\n`;
     const mission = `<wpml:missionConfig>
   <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
@@ -123,23 +158,25 @@
     <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex><wpml:fileSuffix>${xmlEsc(String(name).replace(/[^\w-]+/g, '_').slice(0, 30))}</wpml:fileSuffix>
     <wpml:payloadLensIndex>wide</wpml:payloadLensIndex><wpml:useGlobalPayloadLensIndex>0</wpml:useGlobalPayloadLensIndex></wpml:actionActuatorFuncParam></wpml:action>
 </wpml:actionGroup>\n`;
-    const groups = i => (i === 0 ? gimbal(0) : '') + (i % 2 === 0 ? shoot(i, i + 1) : '');
+    const groups = i => (i === 0 ? gimbal(0) : '') + (starts.includes(i) ? shoot(i, ends[starts.indexOf(i)]) : '');
+    const turn = mid => `<wpml:waypointTurnParam><wpml:waypointTurnMode>${mid ? 'toPointAndPassWithContinuityCurvature' : 'toPointAndStopWithDiscontinuityCurvature'}</wpml:waypointTurnMode><wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist></wpml:waypointTurnParam>`;
+    const coord = p => `${p[1].toFixed(8)},${p[0].toFixed(8)}`;
     let tpl = head + `<wpml:author>Overhead UAS</wpml:author>\n<wpml:createTime>${now}</wpml:createTime>\n<wpml:updateTime>${now}</wpml:updateTime>\n` + mission +
 `<Folder>
 <wpml:templateType>waypoint</wpml:templateType>
 <wpml:templateId>0</wpml:templateId>
 <wpml:waylineCoordinateSysParam><wpml:coordinateMode>WGS84</wpml:coordinateMode><wpml:heightMode>relativeToStartPoint</wpml:heightMode></wpml:waylineCoordinateSysParam>
 <wpml:autoFlightSpeed>${v}</wpml:autoFlightSpeed>
-<wpml:globalHeight>${h}</wpml:globalHeight>
+<wpml:globalHeight>${pts[0].h.toFixed(1)}</wpml:globalHeight>
 <wpml:caliFlightEnable>0</wpml:caliFlightEnable>
 <wpml:gimbalPitchMode>usePointSetting</wpml:gimbalPitchMode>
 <wpml:globalWaypointHeadingParam><wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode><wpml:waypointHeadingAngle>0</wpml:waypointHeadingAngle><wpml:waypointPoiPoint>0.000000,0.000000,0.000000</wpml:waypointPoiPoint><wpml:waypointHeadingPoiIndex>0</wpml:waypointHeadingPoiIndex></wpml:globalWaypointHeadingParam>
 <wpml:globalWaypointTurnMode>toPointAndStopWithDiscontinuityCurvature</wpml:globalWaypointTurnMode>
 <wpml:globalUseStraightLine>1</wpml:globalUseStraightLine>\n`;
     gid = 0;
-    pts.forEach((p, i) => { tpl += `<Placemark><Point><coordinates>${p[1].toFixed(8)},${p[0].toFixed(8)}</coordinates></Point>
+    pts.forEach((w, i) => { const h = w.h.toFixed(1); tpl += `<Placemark><Point><coordinates>${coord(w.p)}</coordinates></Point>
 <wpml:index>${i}</wpml:index><wpml:ellipsoidHeight>${h}</wpml:ellipsoidHeight><wpml:height>${h}</wpml:height>
-<wpml:useGlobalHeight>1</wpml:useGlobalHeight><wpml:useGlobalSpeed>1</wpml:useGlobalSpeed><wpml:useGlobalHeadingParam>1</wpml:useGlobalHeadingParam><wpml:useGlobalTurnParam>1</wpml:useGlobalTurnParam><wpml:useStraightLine>1</wpml:useStraightLine>
+<wpml:useGlobalHeight>0</wpml:useGlobalHeight><wpml:useGlobalSpeed>1</wpml:useGlobalSpeed><wpml:useGlobalHeadingParam>1</wpml:useGlobalHeadingParam>${w.mid ? '<wpml:useGlobalTurnParam>0</wpml:useGlobalTurnParam>' + turn(true) : '<wpml:useGlobalTurnParam>1</wpml:useGlobalTurnParam>'}<wpml:useStraightLine>1</wpml:useStraightLine>
 ${groups(i)}</Placemark>\n`; });
     tpl += `</Folder>\n</Document>\n</kml>\n`;
     gid = 0;
@@ -150,10 +187,10 @@ ${groups(i)}</Placemark>\n`; });
 <wpml:distance>${st.dist.toFixed(1)}</wpml:distance>
 <wpml:duration>${Math.round(st.secs)}</wpml:duration>
 <wpml:autoFlightSpeed>${v}</wpml:autoFlightSpeed>\n`;
-    pts.forEach((p, i) => { wl += `<Placemark><Point><coordinates>${p[1].toFixed(8)},${p[0].toFixed(8)}</coordinates></Point>
-<wpml:index>${i}</wpml:index><wpml:executeHeight>${h}</wpml:executeHeight><wpml:waypointSpeed>${v}</wpml:waypointSpeed>
+    pts.forEach((w, i) => { wl += `<Placemark><Point><coordinates>${coord(w.p)}</coordinates></Point>
+<wpml:index>${i}</wpml:index><wpml:executeHeight>${w.h.toFixed(1)}</wpml:executeHeight><wpml:waypointSpeed>${v}</wpml:waypointSpeed>
 <wpml:waypointHeadingParam><wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode><wpml:waypointHeadingAngle>0</wpml:waypointHeadingAngle><wpml:waypointPoiPoint>0.000000,0.000000,0.000000</wpml:waypointPoiPoint><wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode></wpml:waypointHeadingParam>
-<wpml:waypointTurnParam><wpml:waypointTurnMode>toPointAndStopWithDiscontinuityCurvature</wpml:waypointTurnMode><wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist></wpml:waypointTurnParam>
+${turn(w.mid)}
 <wpml:useStraightLine>1</wpml:useStraightLine>
 ${groups(i)}</Placemark>\n`; });
     wl += `</Folder>\n</Document>\n</kml>\n`;
@@ -191,7 +228,7 @@ ${groups(i)}</Placemark>\n`; });
   function mount(root, X) {
     if (root._mapping) { setTimeout(() => root._mapping.map.invalidateSize(), 50); return; }
     const esc = X.esc, $ = id => root.querySelector('#' + id);
-    const S = {poly: [], drawing: false, planId: '', planMine: true, segs: [], cam: null, st: null};
+    const S = {poly: [], drawing: false, planId: '', planMine: true, segs: [], route: null, cam: null, st: null, home: null, placingHome: false, tinfo: null, elevSrc: ''};
     const fmtFt = m => Math.round(m / FT).toLocaleString() + ' ft', fmtMi = m => (m / 1609.344).toFixed(m < 1609 ? 2 : 1) + ' mi';
     root.innerHTML = `
       <div class="view-head"><a href="#" class="back-btn">&lsaquo; Portal</a><h2>Mapping Planner</h2></div>
@@ -222,6 +259,11 @@ ${groups(i)}</Placemark>\n`; });
           <div class="wide"><label>Grid direction (&deg;, direction of the flight lines)</label>
             <div class="mp-dir"><input type="range" id="mpDirR" min="0" max="179" value="0"><input type="number" id="mpDir" value="0" min="0" max="179" inputmode="numeric"><button class="btn btn-ghost sm" id="mpAuto" type="button">Auto</button></div>
             <small class="hint-last">0&deg; = north&ndash;south lines, 90&deg; = east&ndash;west. <b>Auto</b> lines up with the longest edge for the fewest turns.</small></div>
+          <div class="wide mp-terr"><label class="remember"><input type="checkbox" id="mpTerr">Terrain following: keep the same height above the ground on hills</label>
+            <div id="mpTerrOpts" hidden>
+              <div class="mp-dir"><button class="btn btn-ghost sm" type="button" id="mpHome">&#128205; Set takeoff point</button><span class="note" id="mpHomeTxt">Not set</span></div>
+              <label>Max distance between waypoints (ft)</label><input type="number" id="mpWpFt" value="200" min="30" max="1500" step="10" inputmode="numeric">
+              <small class="hint-last">Shorter follows the ground more closely but adds waypoints. Uses USGS elevation data (bare ground: it doesn't include trees or buildings).</small></div></div>
         </div></div>
       <div class="pcard"><h4>Plan</h4><div id="mpStats"><p class="note">Draw an area to see the flight plan.</p></div></div>
       </div>
@@ -231,6 +273,7 @@ ${groups(i)}</Placemark>\n`; });
         <details class="mp-help"><summary>How to load the files</summary><ul>
           <li><b>Litchi:</b> on a computer, open Litchi Mission Hub (flylitchi.com/hub) &rarr; <b>Missions &rarr; Import</b> &rarr; choose the CSV. Import each part if there's more than one. Check the mission is set to <b>Straight lines</b> and <b>Altitude above takeoff</b>, save, then open it in the Litchi app.</li>
           <li><b>DJI Pilot 2 (Mavic 3 Thermal):</b> copy the KMZ to the controller (USB or SD card), then in DJI Pilot 2 open <b>Flight Route &rarr; Import Route (KMZ/KML)</b>. Open the route and check the lines and photo settings before flying.</li>
+          <li><b>Terrain following:</b> take off exactly at the <b>H</b> you set. Waypoint heights already include the rise and fall of the ground, so the drone holds your altitude above the ground. In Litchi, set <b>Path mode: Curved turns</b>.</li>
           <li>Heights are above the <b>takeoff point</b>. Take off from about the same ground level as the area, and check for trees, towers, and rising ground.</li></ul></details>
       </div>
       <div class="pcard"><div class="pcard-top"><h4>Saved plans</h4><button class="btn btn-primary sm" id="mpSave">Save plan</button></div>
@@ -268,10 +311,23 @@ ${groups(i)}</Placemark>\n`; });
       if (on && S.poly.length < 3) $('mpStrip').innerHTML = 'Tap the map to add corners of the area.';
       if (!on) recalc();
     }
-    map.on('click', e => { if (!S.drawing) return; S.poly.push([e.latlng.lat, e.latlng.lng]); drawShape(); if (S.poly.length >= 3) recalc(); else $('mpStrip').innerHTML = `${S.poly.length} corner${S.poly.length > 1 ? 's' : ''} &middot; add at least 3`; });
+    const homeIcon = L.divIcon({className: 'mp-tag home', html: 'H', iconSize: [24, 24]}); let homeM = null;
+    function drawHome() {
+      if (homeM) { homeM.remove(); homeM = null; }
+      $('mpHomeTxt').textContent = S.home ? `${S.home[0].toFixed(5)}, ${S.home[1].toFixed(5)} (drag the H to move it)` : 'Not set';
+      $('mpHome').innerHTML = S.placingHome ? 'Tap the map&hellip;' : S.home ? '&#128205; Move takeoff point' : '&#128205; Set takeoff point';
+      if (!S.home || !$('mpTerr').checked) return;
+      homeM = L.marker(S.home, {icon: homeIcon, draggable: true, keyboard: false, zIndexOffset: 1000}).addTo(map);
+      homeM.on('dragend', e => { const ll = e.target.getLatLng(); S.home = [ll.lat, ll.lng]; drawHome(); recalc(); });
+    }
+    $('mpHome').onclick = () => { S.placingHome = true; drawHome(); $('mpStrip').innerHTML = 'Tap the map where you will take off.'; $('mpWrap').scrollIntoView({behavior: 'smooth', block: 'start'}); };
+    $('mpTerr').onchange = () => { drawHome(); recalc(); };
+    $('mpWpFt').addEventListener('input', recalc);
+    map.on('click', e => { if (S.placingHome) { S.placingHome = false; S.home = [e.latlng.lat, e.latlng.lng]; drawHome(); recalc(); return; }
+      if (!S.drawing) return; S.poly.push([e.latlng.lat, e.latlng.lng]); drawShape(); if (S.poly.length >= 3) recalc(); else $('mpStrip').innerHTML = `${S.poly.length} corner${S.poly.length > 1 ? 's' : ''} &middot; add at least 3`; });
     $('mpDraw').onclick = () => setDrawing(!S.drawing);
     $('mpUndo').onclick = () => { S.poly.pop(); drawShape(); recalc(); };
-    $('mpClear').onclick = () => { if (S.poly.length && !confirm('Clear the area?')) return; S.poly = []; S.planId = ''; drawShape(); recalc(); setDrawing(true); };
+    $('mpClear').onclick = () => { if (S.poly.length && !confirm('Clear the area?')) return; S.poly = []; S.planId = ''; S.home = null; drawHome(); drawShape(); recalc(); setDrawing(true); };
     const full = on => { $('mpWrap').classList.toggle('mp-full', on); document.body.style.overflow = on ? 'hidden' : ''; $('mpFull').innerHTML = on ? '&times; Exit full screen' : '&#10530; Full screen'; setTimeout(() => map.invalidateSize(), 60); };
     $('mpFull').onclick = () => full(!$('mpWrap').classList.contains('mp-full'));
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('mpWrap') && $('mpWrap').classList.contains('mp-full')) full(false); });
@@ -291,48 +347,114 @@ ${groups(i)}</Placemark>\n`; });
 
     // ---- settings
     const val = id => parseFloat($(id).value), drone = () => DRONES[$('mpDrone').value];
-    const settings = () => ({drone: $('mpDrone').value, altFt: val('mpAlt'), front: val('mpFront'), side: val('mpSide'), speedMph: val('mpSpeed'), dir: val('mpDir')});
-    const applySettings = st => { if (DRONES[st.drone]) $('mpDrone').value = st.drone; [['mpAlt', st.altFt], ['mpFront', st.front], ['mpSide', st.side], ['mpSpeed', st.speedMph], ['mpDir', st.dir]].forEach(([id, v]) => { if (v != null && !isNaN(v)) $(id).value = v; }); $('mpDirR').value = $('mpDir').value; };
+    const settings = () => ({drone: $('mpDrone').value, altFt: val('mpAlt'), front: val('mpFront'), side: val('mpSide'), speedMph: val('mpSpeed'), dir: val('mpDir'),
+      terrain: $('mpTerr').checked, wpFt: val('mpWpFt'), home: S.home ? [+S.home[0].toFixed(7), +S.home[1].toFixed(7)] : null});
+    const applySettings = st => { if (DRONES[st.drone]) $('mpDrone').value = st.drone; [['mpAlt', st.altFt], ['mpFront', st.front], ['mpSide', st.side], ['mpSpeed', st.speedMph], ['mpDir', st.dir]].forEach(([id, v]) => { if (v != null && !isNaN(v)) $(id).value = v; }); $('mpDirR').value = $('mpDir').value;
+      $('mpTerr').checked = !!st.terrain; if (st.wpFt) $('mpWpFt').value = st.wpFt; S.home = st.home && st.home.length === 2 ? [+st.home[0], +st.home[1]] : null; S.placingHome = false; drawHome(); };
     $('mpDirR').oninput = () => { $('mpDir').value = $('mpDirR').value; recalc(); };
     $('mpDir').oninput = () => { $('mpDirR').value = $('mpDir').value; recalc(); };
     $('mpAuto').onclick = () => { if (S.poly.length < 3) return; $('mpDir').value = $('mpDirR').value = longestEdgeDir(S.poly); recalc(); };
     ['mpAlt', 'mpFront', 'mpSide', 'mpSpeed'].forEach(id => $(id).addEventListener('input', recalc));
     $('mpDrone').onchange = recalc;
 
+    // ---- ground elevation (USGS 3DEP; Open-Meteo as a backup), cached by rounded coordinate
+    // one source per plan: never mix USGS and backup values (different terrain models can differ by a few feet)
+    const elevCache = {usgs: new Map(), om: new Map()}, ekey = p => p[0].toFixed(5) + ',' + p[1].toFixed(5);
+    const pickSrc = pts => pts.every(p => elevCache.usgs.has(ekey(p))) ? 'usgs' : pts.every(p => elevCache.om.has(ekey(p))) ? 'om' : '';
+    async function fetchJSON(url, opt, ms = 20000) {
+      const ac = typeof AbortController === 'function' ? new AbortController() : null, t = ac ? setTimeout(() => ac.abort(), ms) : 0;
+      try { const r = await fetch(url, Object.assign({}, opt || {}, ac ? {signal: ac.signal} : {})); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); } finally { clearTimeout(t); }
+    }
+    async function usgs(points) {
+      const body = 'geometry=' + encodeURIComponent(JSON.stringify({points: points.map(p => [p[1], p[0]]), spatialReference: {wkid: 4326}})) +
+        '&geometryType=esriGeometryMultipoint&returnFirstValueOnly=true&interpolation=RSP_BilinearInterpolation&f=json';
+      const j = await fetchJSON('https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/getSamples', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body});
+      const out = new Array(points.length).fill(NaN);
+      (j.samples || []).forEach(sm => { const v = parseFloat(sm.value); if (sm.locationId >= 0 && sm.locationId < points.length && isFinite(v) && v > -500) out[sm.locationId] = v; });
+      if (out.some(v => !isFinite(v))) throw new Error('missing elevation values');
+      return out;
+    }
+    async function openMeteo(points) {
+      const j = await fetchJSON('https://api.open-meteo.com/v1/elevation?latitude=' + points.map(p => p[0].toFixed(6)).join(',') + '&longitude=' + points.map(p => p[1].toFixed(6)).join(','));
+      if (!j.elevation || j.elevation.length !== points.length) throw new Error('elevation service error');
+      return j.elevation.map(Number);
+    }
+    async function fill(src, points, onProgress) {
+      const C = elevCache[src], need = [...new Map(points.filter(p => !C.has(ekey(p))).map(p => [ekey(p), p])).values()];
+      for (let i = 0; i < need.length; i += 100) {
+        const chunk = need.slice(i, i + 100), vals = await (src === 'usgs' ? usgs(chunk) : openMeteo(chunk));
+        chunk.forEach((p, k) => C.set(ekey(p), vals[k]));
+        if (onProgress) onProgress(Math.min(need.length, i + 100), need.length);
+      }
+    }
+    async function elevations(points, onProgress) {
+      try { await fill('usgs', points, onProgress); } catch (e) { await fill('om', points, onProgress); }
+    }
+
     // ---- calculate + draw
+    let terrToken = 0;
     function recalc() {
       const d = drone(); $('mpDroneNote').textContent = `${d.note} · about ${d.batt} min usable per battery (${d.rated} min rated)`;
-      lineL.clearLayers(); S.segs = []; S.cam = S.st = null;
-      const st = settings(), warn = [];
-      const bad = !(st.altFt >= 30 && st.altFt <= 1000) || !(st.front >= 30 && st.front < 95) || !(st.side >= 30 && st.side < 95) || !(st.speedMph > 0.5 && st.speedMph <= 45) || isNaN(st.dir);
+      lineL.clearLayers(); S.segs = []; S.route = null; S.cam = S.st = null; S.tinfo = null;
+      const st = settings(), warn = [], myToken = ++terrToken;
+      $('mpTerrOpts').hidden = !st.terrain;
+      const bad = !(st.altFt >= 30 && st.altFt <= 1000) || !(st.front >= 30 && st.front < 95) || !(st.side >= 30 && st.side < 95) || !(st.speedMph > 0.5 && st.speedMph <= 45) || isNaN(st.dir) || (st.terrain && !(st.wpFt >= 30));
       if (S.poly.length < 3) { $('mpStats').innerHTML = '<p class="note">Draw an area (at least 3 corners) to see the flight plan.</p>'; drawExport(); if (!S.drawing) $('mpStrip').innerHTML = 'Tap <b>Draw area</b>, then tap the map to outline the area to map.'; return; }
-      if (bad) { $('mpStats').innerHTML = '<p class="err-msg">Check the settings: altitude 30&ndash;400 ft, overlaps 30&ndash;94%, speed above 0.</p>'; drawExport(); return; }
+      if (bad) { $('mpStats').innerHTML = '<p class="err-msg">Check the settings: altitude 30&ndash;400 ft, overlaps 30&ndash;94%, speed above 0, waypoint spacing at least 30 ft.</p>'; drawExport(); return; }
       const altM = st.altFt * FT, speed = st.speedMph * MPH, cam = camera(d, altM, st.front, st.side);
       let segs;
       try { segs = grid(S.poly, st.dir, cam.lineSp); } catch (e) { $('mpStats').innerHTML = '<p class="err-msg">This area is too large for one plan at these settings. Raise the altitude, lower the side overlap, or split the area.</p>'; drawExport(); return; }
       if (!segs.length) { $('mpStats').innerHTML = '<p class="err-msg">No flight lines fit in this area. Make the area larger or lower the altitude.</p>'; drawExport(); return; }
-      const s = stats(segs, cam, speed, d), acres = areaM2(S.poly) / 4046.856;
-      Object.assign(S, {segs, cam, st: s});
+      Object.assign(S, {segs, cam});
       segs.forEach((sg, i) => { L.polyline(sg, {color: '#4fd1ff', weight: 2.5, opacity: 0.95, interactive: false}).addTo(lineL);
         if (i) L.polyline([segs[i - 1][1], sg[0]], {color: '#ffffff', weight: 1.5, dashArray: '4 5', opacity: 0.8, interactive: false}).addTo(lineL); });
       L.marker(segs[0][0], {icon: tag('S', 'start'), interactive: false}).addTo(lineL);
       L.marker(segs[segs.length - 1][1], {icon: tag('E', 'end'), interactive: false}).addTo(lineL);
-      if (st.altFt > 400) warn.push('Above 400 ft AGL: Part 107 limits flights to 400 ft unless within 400 ft of a structure.');
-      if (speed > s.maxSpeed) warn.push(`Too fast for the camera: photos would be ${s.interval.toFixed(1)} s apart, but the ${esc(d.name.replace(/ \(.*/, ''))} needs about ${d.minInt} s between photos. Slow to ${(s.maxSpeed / MPH).toFixed(1)} mph or less, or lower the front overlap.`);
-      if (s.wps > 99 && d.litchi) warn.push(`${s.wps} waypoints: the Litchi export is split into ${Math.ceil(s.wps / 98)} missions (Litchi allows 99 per mission).`);
-      if (s.batteries > 1) warn.push(`Needs about ${s.batteries} batteries. Plan battery swaps; Litchi parts or DJI Pilot 2 breakpoint resume can help.`);
-      if (acres > 300) warn.push('Large area: consider splitting it into smaller plans.');
+      // route: flat, or terrain-following (needs the takeoff point and ground elevation)
+      if (!st.terrain) S.route = flatRoute(segs, altM);
+      else if (!S.home) { renderStats(st, d, cam, speed, warn, '<p class="mp-warn">&#9888; Terrain following: tap <b>Set takeoff point</b>, then tap the map where you\'ll take off.</p>'); drawExport(); return; }
+      else {
+        const maxSp = st.wpFt * FT, totalL = segs.reduce((a, sg) => a + distM(sg[0], sg[1]), 0), step = Math.max(10, Math.min(cam.photoSp, 25), totalL / 4000);
+        const lines = terrainSamples(segs, cam.photoSp, maxSp, step), pts = [S.home].concat(...lines.map(l => l.sp));
+        const src = pickSrc(pts);
+        if (!src) {
+          renderStats(st, d, cam, speed, warn, `<p class="note" id="mpTerrStatus">&#8987; Getting ground elevation for ${pts.length.toLocaleString()} points…</p>`); drawExport();
+          elevations(pts, (n, of) => { const el = $('mpTerrStatus'); if (el && myToken === terrToken) el.innerHTML = `&#8987; Getting ground elevation… ${n.toLocaleString()} of ${of.toLocaleString()}`; })
+            .then(() => { if (myToken === terrToken) recalc(); })
+            .catch(e => { if (myToken !== terrToken) return; const el = $('mpTerrStatus'); if (el) el.outerHTML = `<p class="err-msg">Couldn't get ground elevation (${esc(e.message)}). Check your connection and try again, or turn off terrain following. <button class="btn btn-ghost sm" type="button" id="mpTerrRetry">Retry</button></p>`;
+              const rb = $('mpTerrRetry'); if (rb) rb.onclick = recalc; });
+          return;
+        }
+        const elevOf = p => elevCache[src].get(ekey(p)), homeE = elevOf(S.home), T = terrainRoute(lines, elevOf, altM, homeE);
+        S.route = T.route; S.tinfo = Object.assign({homeE, src: src === 'usgs' ? 'USGS 3DEP' : 'Open-Meteo (backup)'}, T);
+        if (T.hMax > 120) warn.push(`Waypoints go up to ${Math.round(T.hMax / FT)} ft above the takeoff point (still ${st.altFt} ft above the ground below the drone). Raise the max altitude limit in the flight app if it's set to 400 ft (120 m).`);
+        if (T.hMin < 10) warn.push(`Some waypoints are ${T.hMin < 0 ? Math.round(-T.hMin / FT) + ' ft below' : 'only ' + Math.round(T.hMin / FT) + ' ft above'} the takeoff point because the ground drops away. Taking off from lower ground is safer, and some apps won't accept heights below takeoff.`);
+      }
+      const s = stats(S.route, cam, speed, d); S.st = s;
+      renderStats(st, d, cam, speed, warn, '');
+      drawExport();
+    }
+    function renderStats(st, d, cam, speed, warn, extra) {
+      const s = S.st, acres = areaM2(S.poly) / 4046.856, T = S.tinfo;
       const tile = (k, v, sub) => `<div class="mp-stat"><span>${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
-      const mins = Math.round(s.secs / 60);
-      $('mpStats').innerHTML = `<div class="mp-stats">
+      if (s) {
+        if (st.altFt > 400) warn.unshift('Above 400 ft AGL: Part 107 limits flights to 400 ft unless within 400 ft of a structure.');
+        if (speed > s.maxSpeed) warn.unshift(`Too fast for the camera: photos would be ${s.interval.toFixed(1)} s apart, but the ${esc(d.name.replace(/ \(.*/, ''))} needs about ${d.minInt} s between photos. Slow to ${(s.maxSpeed / MPH).toFixed(1)} mph or less, or lower the front overlap.`);
+        if (s.wps > 99 && d.litchi) warn.push(`${s.wps} waypoints: the Litchi export is split into ${litchiCsvs(S.route, speed, cam.photoSp).length} missions (Litchi allows 99 per mission).`);
+        if (s.batteries > 1) warn.push(`Needs about ${s.batteries} batteries. Plan battery swaps; Litchi parts or DJI Pilot 2 breakpoint resume can help.`);
+        if (acres > 300) warn.push('Large area: consider splitting it into smaller plans.');
+      }
+      const mins = s ? Math.round(s.secs / 60) : 0;
+      $('mpStats').innerHTML = (s ? `<div class="mp-stats">
           ${tile('Photos', s.photos.toLocaleString())}${tile('Flight time', mins + ' min', 'estimated')}${tile('Batteries', s.batteries, `~${d.batt} min each`)}${tile('Distance', fmtMi(s.dist), s.lines + ' lines')}
           ${tile('Ground resolution', cam.gsd.toFixed(2) + ' cm/px', (cam.gsd / 2.54).toFixed(2) + ' in/px')}${tile('Line spacing', fmtFt(cam.lineSp), cam.lineSp.toFixed(1) + ' m')}
           ${tile('Photo spacing', fmtFt(cam.photoSp), cam.photoSp.toFixed(1) + ' m · ' + s.interval.toFixed(1) + ' s apart')}${tile('Area', acres.toFixed(acres < 10 ? 2 : 1) + ' acres', s.wps + ' waypoints')}
+          ${T ? tile('Ground along route', `${Math.round(T.gMin / FT)}&ndash;${Math.round(T.gMax / FT)} ft`, `elevation · takeoff ${Math.round(T.homeE / FT)} ft`) + tile('Height above takeoff', `${Math.round(T.hMin / FT)} to ${Math.round(T.hMax / FT)} ft`, `holds ${st.altFt} ft above ground`) : ''}
         </div>
-        <p class="note">Photo footprint ${fmtFt(cam.across)} &times; ${fmtFt(cam.along)} at ${st.altFt} ft. Time includes about 3 s per turn and 90 s for takeoff, climb, and return.</p>
-        ${warn.map(w => `<p class="mp-warn">&#9888; ${w}</p>`).join('')}`;
-      $('mpStrip').innerHTML = `<b>${s.photos.toLocaleString()}</b> photos &middot; <b>${fmtMi(s.dist)}</b> &middot; <b>${mins} min</b> &middot; <b>${s.batteries}</b> batter${s.batteries > 1 ? 'ies' : 'y'} &middot; ${cam.gsd.toFixed(2)} cm/px`;
-      drawExport();
+        <p class="note">Photo footprint ${fmtFt(cam.across)} &times; ${fmtFt(cam.along)} at ${st.altFt} ft. Time includes about 3 s per turn and 90 s for takeoff, climb, and return.${T ? ` Terrain from ${esc(T.src)}: bare ground only, so allow for trees and buildings.` : ''}</p>` : '') +
+        extra + warn.map(w => `<p class="mp-warn">&#9888; ${w}</p>`).join('');
+      $('mpStrip').innerHTML = s ? `<b>${s.photos.toLocaleString()}</b> photos &middot; <b>${fmtMi(s.dist)}</b> &middot; <b>${mins} min</b> &middot; <b>${s.batteries}</b> batter${s.batteries > 1 ? 'ies' : 'y'} &middot; ${cam.gsd.toFixed(2)} cm/px${T ? ' &middot; terrain on' : ''}`
+        : (st.terrain && !S.home ? 'Set the takeoff point for terrain following.' : 'Getting ground elevation…');
     }
 
     // ---- export
@@ -344,12 +466,12 @@ ${groups(i)}</Placemark>\n`; });
     }
     function drawExport() {
       const box = $('mpExport'), d = drone();
-      if (!S.segs.length) { box.innerHTML = '<p class="note">Draw an area first.</p>'; return; }
-      const st = settings(), altM = st.altFt * FT, speed = st.speedMph * MPH, parts = litchiCsvs(S.segs, altM, speed, S.cam.photoSp);
+      if (!S.route || !S.st) { box.innerHTML = `<p class="note">${S.segs.length && settings().terrain ? 'Finish the terrain setup above to export.' : 'Draw an area first.'}</p>`; return; }
+      const st = settings(), speed = st.speedMph * MPH, parts = litchiCsvs(S.route, speed, S.cam.photoSp), terr = !!S.tinfo;
       box.innerHTML = `<div class="mp-exp">
-        <div><b>Litchi Mission Hub (CSV)</b><p class="note">${parts.length > 1 ? `${parts.length} missions (${parts.map(p => p.wps).join(' + ')} waypoints), because Litchi allows 99 per mission.` : `1 mission, ${parts[0].wps} waypoints.`} Photos every ${S.cam.photoSp.toFixed(1)} m along each line.${d.litchi ? '' : ' <span class="warn-inline">Litchi doesn\'t support the Mavic 3 Thermal; use the KMZ.</span>'}</p>
+        <div><b>Litchi Mission Hub (CSV)</b><p class="note">${parts.length > 1 ? `${parts.length} missions (${parts.map(p => p.wps).join(' + ')} waypoints), because Litchi allows 99 per mission.` : `1 mission, ${parts[0].wps} waypoints.`} Photos every ${S.cam.photoSp.toFixed(1)} m along each line.${terr ? ' <b>Terrain following:</b> in Mission Hub set <b>Path mode: Curved turns</b> so the drone flies through the middle waypoints.' : ''}${d.litchi ? '' : ' <span class="warn-inline">Litchi doesn\'t support the Mavic 3 Thermal; use the KMZ.</span>'}</p>
           <div class="fill-actions">${parts.length > 1 ? parts.map((p, i) => `<button class="btn btn-ghost sm" data-csv="${i}">Part ${i + 1} of ${parts.length}</button>`).join('') + '<button class="btn btn-primary sm" data-csv="all">All parts (.zip)</button>' : '<button class="btn btn-primary sm" data-csv="0">Download CSV</button>'}</div></div>
-        <div><b>DJI Pilot 2 (KMZ)</b><p class="note">${d.kmz ? `Waypoint route for the Mavic 3 Thermal, ${S.st.wps} waypoints, wide-camera photos every ${S.cam.photoSp.toFixed(1)} m.` : 'Available when the Mavic 3 Thermal is selected.'}</p>
+        <div><b>DJI Pilot 2 (KMZ)</b><p class="note">${d.kmz ? `Waypoint route for the Mavic 3 Thermal, ${S.st.wps} waypoints${terr ? ' with heights following the terrain' : ''}, wide-camera photos every ${S.cam.photoSp.toFixed(1)} m.` : 'Available when the Mavic 3 Thermal is selected.'}</p>
           <div class="fill-actions"><button class="btn ${d.kmz ? 'btn-primary' : 'btn-ghost'} sm" data-kmz${d.kmz ? '' : ' disabled'}>Download KMZ</button></div></div></div>`;
       box.querySelectorAll('[data-csv]').forEach(b => b.onclick = () => {
         const nm = baseName(), k = b.dataset.csv;
@@ -357,7 +479,7 @@ ${groups(i)}</Placemark>\n`; });
         else deliver(parts[+k].text, parts.length > 1 ? `${nm}_part${+k + 1}of${parts.length}.csv` : nm + '.csv', 'text/csv');
       });
       const kb = box.querySelector('[data-kmz]');
-      if (kb && d.kmz) kb.onclick = () => deliver(djiKmz(S.segs, altM, speed, S.cam.photoSp, baseName(), S.st), baseName() + '.kmz', 'application/vnd.google-earth.kmz');
+      if (kb && d.kmz) kb.onclick = () => deliver(djiKmz(S.route, speed, S.cam.photoSp, baseName(), S.st), baseName() + '.kmz', 'application/vnd.google-earth.kmz');
     }
 
     // ---- save / load (Overhead UAS records via the portal script; this device as a fallback)
@@ -401,5 +523,5 @@ ${groups(i)}</Placemark>\n`; });
     drawShape(); recalc(); drawSaved();
   }
 
-  window.OUAS_MAPPING = {mount, _t: {DRONES, camera, grid, stats, areaM2, longestEdgeDir, litchiCsvs, djiKmz, zip, distM}};
+  window.OUAS_MAPPING = {mount, _t: {DRONES, camera, grid, stats, areaM2, longestEdgeDir, litchiCsvs, djiKmz, zip, distM, flatRoute, lineStations, terrainSamples, terrainRoute}};
 })();
